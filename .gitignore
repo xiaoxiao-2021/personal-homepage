@@ -1,0 +1,33 @@
+# Default-deny: only source files below are intended for publication.
+/**
+!/.gitignore
+!/README.md
+!/LICENSE
+!/package.json
+!/package-lock.json
+!/*.cjs
+!/*.ps1
+!/启动个人首页.cmd
+!/src/
+!/src/**
+!/tests/
+!/tests/**
+
+# Runtime data must not be published, even if placed under source directories.
+**/node_modules/
+**/test-results/
+**/.env
+**/.env.*
+**/*.log
+**/*.tmp
+**/*.lnk
+**/homepage-config.json
+**/homepage-startup.json
+**/homepage-startup-recovery.json
+**/dida-credential.bin
+**/dida-dashboard-cache.bin
+**/personal-homepage-backup*.json
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
