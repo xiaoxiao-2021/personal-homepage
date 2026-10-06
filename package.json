@@ -1,0 +1,17 @@
+{
+  "name": "personal-homepage-desktop",
+  "version": "0.2.5",
+  "private": true,
+  "description": "Windows personal homepage with a reversible desktop-layer trial",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "node_modules\\electron\\dist\\electron.exe .",
+    "check": "node --check main.cjs && node --check preload.cjs && node --check startup-settings.cjs && node --check src/task-view.js && node --check src/renderer.js"
+  },
+  "devDependencies": {
+    "electron": "^39.8.10"
+  },
+  "allowScripts": {
+    "electron@39.8.10": true
+  }
+}

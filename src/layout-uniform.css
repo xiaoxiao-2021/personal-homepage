@@ -1,0 +1,19 @@
+/* All scenes use the same primary column proportions. Older focus classes are
+   retained for config compatibility but no longer narrow the task card. */
+.workspace.focus-tasks,
+.workspace.focus-apps,
+.workspace.focus-side {
+  grid-template-columns: minmax(250px,.82fr) minmax(360px,1.35fr) minmax(245px,.78fr);
+}
+
+@media (max-width: 900px) {
+  .workspace.focus-tasks,
+  .workspace.focus-apps,
+  .workspace.focus-side { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+}
+
+@media (max-width: 590px) {
+  .workspace.focus-tasks,
+  .workspace.focus-apps,
+  .workspace.focus-side { grid-template-columns: minmax(0,1fr); }
+}

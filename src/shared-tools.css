@@ -1,0 +1,115 @@
+/* Shared right-side tools: one DOM instance, all scenes. */
+#workspace {
+  grid-template-columns: minmax(250px, .84fr) minmax(360px, 1.34fr) minmax(250px, .82fr);
+  align-items: start;
+}
+#workspace > .task-card { grid-column: 1; grid-row: 1 / span 2; }
+#workspace > .apps-card { grid-column: 2; grid-row: 1; }
+#workspace > .side-card { grid-column: 2; grid-row: 2; }
+#workspace > .modules-card { grid-column: 3; grid-row: 1 / span 2; display: flex; align-self: start; min-height: 0; }
+#workspace > .modules-card[hidden] { display: none !important; }
+#workspace.no-shared-tools { grid-template-columns: minmax(250px, .9fr) minmax(360px, 1.35fr); }
+#workspace.no-shared-tools > .task-card { grid-column: 1; }
+#workspace.no-shared-tools > .apps-card { grid-column: 2; }
+#workspace.no-shared-tools > .side-card { grid-column: 2; }
+#workspace > .modules-card .module-stack { min-height: 0; }
+#workspace > .modules-card .module-panel { min-width: 0; }
+#moduleStack > .module-panel[hidden] { display: none; }
+.module-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#moduleStack [data-module="music"].is-collapsed #musicProgress,
+#moduleStack [data-module="music"].is-collapsed .music-meta,
+#moduleStack [data-module="music"].is-collapsed .music-list,
+#moduleStack [data-module="music"].is-collapsed #musicStatus { display: none; }
+#moduleStack [data-module="music"].is-collapsed .music-controls .btn:not(#musicPlay) { display: none; }
+#moduleStack [data-module="music"].is-collapsed .music-controls { margin-top: 8px; }
+#moduleDialog .modal { max-height: min(760px, calc(100vh - 32px)); overflow: auto; }
+#moduleDialog .modal-actions { position:sticky; bottom:-24px; z-index:2; padding:12px 0 4px; background:var(--solid); border-top:1px solid var(--line); }
+#moduleDialog h4 { margin: 18px 0 8px; color: var(--ink); font-size: 14px; }
+#moduleDialog .module-order-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#moduleDialog .module-option { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+#moduleDialog .checks { gap: 8px 12px; }
+#moduleDialog .checks label { min-height: 36px; }
+#moduleDialog .tool-personalization { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; margin:12px 0 16px; }
+#moduleDialog .tool-personalization label { display:grid; gap:5px; color:var(--muted); font-size:12px; }
+#moduleDialog .tool-personalization select { width:100%; min-height:36px; border:1px solid var(--line); border-radius:10px; padding:7px 9px; background:var(--surface); color:var(--ink); }
+
+/* Tool personalization stays inside the single shared tool instance. */
+#moduleCard {
+  --tool-accent:var(--accent);
+  --tool-soft:var(--soft);
+  --tool-on-accent:var(--on-accent);
+}
+#moduleCard[data-tool-accent="green"] { --tool-accent:#547265; --tool-soft:#e5eee8; --tool-on-accent:#fff; }
+#moduleCard[data-tool-accent="mist"] { --tool-accent:#547589; --tool-soft:#e4edf2; --tool-on-accent:#fff; }
+#moduleCard[data-tool-accent="brown"] { --tool-accent:#86664f; --tool-soft:#f0e7df; --tool-on-accent:#fff; }
+body.night #moduleCard[data-tool-accent="green"] { --tool-accent:#91b8a5; --tool-soft:#31483e; --tool-on-accent:#17261f; }
+body.night #moduleCard[data-tool-accent="mist"] { --tool-accent:#91b4c8; --tool-soft:#30434d; --tool-on-accent:#14242d; }
+body.night #moduleCard[data-tool-accent="brown"] { --tool-accent:#d1ad91; --tool-soft:#4e3f35; --tool-on-accent:#2b1d15; }
+#moduleCard .calendar-grid button.selected { background:var(--tool-accent); color:var(--tool-on-accent); }
+#moduleCard .calendar-grid button.today { box-shadow:inset 0 0 0 2px var(--tool-accent); }
+#moduleCard .calendar-grid button.today.selected { box-shadow:inset 0 0 0 2px var(--tool-on-accent); }
+#moduleCard .calendar-grid button:hover,
+#moduleCard .calendar-grid button:focus-visible { background:var(--tool-soft); }
+#moduleCard .calendar-grid button.selected:hover,
+#moduleCard .calendar-grid button.selected:focus-visible { background:var(--tool-accent); color:var(--tool-on-accent); }
+#moduleCard .calendar-grid button:focus-visible { outline:2px solid var(--tool-accent); outline-offset:2px; }
+#moduleCard input[type="range"] { accent-color:var(--tool-accent); }
+#moduleCard button:focus-visible { outline-color:var(--tool-accent); }
+
+/* Compact, medium and large now produce a visible but safe difference. */
+#moduleStack > .module-panel[data-panel-size="compact"] { padding:11px; }
+#moduleStack > .module-panel[data-panel-size="medium"] { padding:15px; }
+#moduleStack > .module-panel[data-panel-size="large"] { padding:19px; }
+#moduleStack > [data-module="time"] { background:linear-gradient(135deg,color-mix(in srgb,var(--tool-soft) 72%,var(--solid)),var(--solid)); }
+#moduleTimeNow { font-variant-numeric:tabular-nums; }
+#moduleStack > [data-module="time"].clock-large #moduleTimeNow { font-size:40px; }
+
+/* Time and calendar become one visual group only when they are adjacent in
+   the user's saved order. Their DOM/state stays independent. */
+#moduleStack > .module-panel.is-combined-start {
+  /* Leave a real one-pixel separation after cancelling the stack's 12px gap.
+     This keeps the visual group contiguous without geometrically overlapping
+     at fractional Windows/page scaling. */
+  margin-bottom:-11px;
+  border-bottom-left-radius:0;
+  border-bottom-right-radius:0;
+  border-bottom-color:transparent;
+  box-shadow:none;
+}
+#moduleStack > .module-panel.is-combined-end {
+  border-top-left-radius:0;
+  border-top-right-radius:0;
+  border-top-color:color-mix(in srgb,var(--tool-accent) 24%,var(--line));
+}
+#moduleStack > [data-module="calendar"].calendar-compact .calendar-grid button { min-height:24px; padding:2px 0; }
+#moduleStack > [data-module="calendar"].calendar-compact .calendar-week { margin-bottom:1px; }
+#moduleStack > [data-module="calendar"].calendar-compact { gap:4px; }
+
+.music-now { display:flex; align-items:center; gap:10px; min-width:0; }
+.music-mark { flex:0 0 34px; width:34px; height:34px; display:grid; place-items:center; border-radius:11px; background:var(--tool-soft); color:var(--tool-accent); font-size:17px; }
+#musicCurrent { min-width:0; flex:1; }
+#moduleStack [data-module="music"].is-collapsed { grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+#moduleStack [data-module="music"].is-collapsed .module-title { grid-column:1 / -1; }
+#moduleStack [data-module="music"].is-collapsed .music-now { grid-column:1; }
+#moduleStack [data-module="music"].is-collapsed .music-controls { grid-column:2; margin:0; }
+#moduleStack [data-module="music"].is-collapsed #musicPlay { min-width:64px; }
+#moduleStack [data-module="music"].is-empty .music-now { grid-column:1 / -1; }
+#moduleStack [data-module="music"].is-empty #musicStatus { margin-top:2px; }
+@media (max-width: 1100px) {
+  #workspace, body.desktop-home #workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  #workspace.no-shared-tools, body.desktop-home #workspace.no-shared-tools { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  #workspace > .task-card { grid-column: 1; grid-row: 1; }
+  #workspace > .apps-card, body.desktop-home #workspace > .apps-card { grid-column: 2; grid-row: 1; }
+  #workspace > .side-card { grid-column: 2; grid-row: 2; }
+  #workspace > .modules-card { grid-column: 1 / -1; grid-row: 3; }
+}
+@media (max-width: 720px) {
+  #workspace, body.desktop-home #workspace,
+  #workspace.no-shared-tools, body.desktop-home #workspace.no-shared-tools { grid-template-columns: minmax(0, 1fr); }
+  #workspace > .task-card { grid-column: 1; grid-row: 1; }
+  #workspace > .apps-card, body.desktop-home #workspace > .apps-card { grid-column: 1; grid-row: 2; }
+  #workspace > .side-card { grid-column: 1; grid-row: 3; }
+  #workspace > .modules-card { grid-column: 1; grid-row: 4; }
+  #moduleDialog .modal { width: min(94vw, 620px); }
+  #moduleDialog .tool-personalization { grid-template-columns:1fr; }
+}

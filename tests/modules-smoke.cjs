@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const renderer=fs.readFileSync('src/renderer.js','utf8');
+const html=fs.readFileSync('src/index.html','utf8');
+const preload=fs.readFileSync('preload.cjs','utf8');
+const main=fs.readFileSync('main.cjs','utf8');
+for(const id of ['moduleCard','moduleTimeNow','calendarGrid','musicAudio','musicAdd','moduleManagerBtn','moduleDialog'])assert.match(html,new RegExp(`id="${id}"`));
+assert.match(renderer,/moduleDefaults\(preset='standard'\)/);assert.match(renderer,/normalizeWithModules/);assert.match(renderer,/calendarCursor/);assert.match(renderer,/homeApi\.chooseAudioFiles/);assert.match(renderer,/homeApi\.onMusicCommand/);
+assert.match(preload,/chooseAudioFiles/);assert.match(preload,/audioUrl/);assert.match(main,/home-audio/);assert.match(main,/chooseAudioFiles/);assert.match(main,/isForbiddenPath\(selected\)/);
+console.log('module checks passed: per-scene module markup, calendar navigation, restricted audio bridge and migration hooks present');

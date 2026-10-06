@@ -1,0 +1,65 @@
+/* The tool rail grows with its content; children must never shrink below text. */
+#moduleCard.card, body.desktop-home #moduleCard.card.height-content {
+  height:auto; max-height:none; min-height:0;
+  background:transparent; border:0; box-shadow:none; backdrop-filter:none;
+  overflow:visible;
+}
+#moduleCard > .head { display:none; }
+#moduleStack {
+  display:flex; flex-direction:column; gap:12px; padding:0;
+  overflow:visible; min-width:0;
+}
+#moduleStack > .module-panel {
+  flex:0 0 auto; min-width:0; min-height:min-content;
+  padding:14px; border-radius:18px;
+  background:rgba(var(--surface-rgb),var(--strong-alpha));
+  box-shadow:0 6px 18px rgba(59,54,42,.06);
+}
+#moduleStack > [data-panel-size="compact"] { padding:10px; }
+#moduleStack > [data-panel-size="large"] { padding:18px; }
+#moduleStack .module-title { gap:8px; flex-wrap:wrap; }
+#moduleStack [data-module="time"] {
+  display:grid; grid-template-columns:auto minmax(0,1fr); gap:3px 12px;
+  align-items:center;
+}
+#moduleStack [data-module="time"] > .module-title { display:none; }
+#moduleTimeNow { font-size:30px; line-height:1.15; margin:0; letter-spacing:.01em; }
+#moduleTimeDate { margin:0; line-height:1.6; overflow-wrap:anywhere; }
+#moduleStack [data-module="calendar"] { display:grid; gap:7px; }
+#moduleStack .calendar-label { margin:0; }
+#moduleStack .calendar-week { margin:0; }
+#moduleStack .calendar-grid { gap:3px; }
+#moduleStack .calendar-grid button { min-height:28px; padding:4px 0; }
+#calendarSelected { margin:0; line-height:1.45; overflow-wrap:anywhere; }
+.calendar-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 10px; }
+#moduleStack #calendarFollowBtn { min-height:30px; padding:3px 8px; color:var(--tool-accent,var(--accent)); border-color:var(--line); }
+#moduleStack .calendar-actions .btn { min-height:28px; padding:3px 8px; }
+#moduleStack [data-module="music"] { display:grid; gap:8px; }
+#musicAdd { padding:6px 9px; font-size:12px; }
+#musicCurrent { padding:0; }
+#musicStatus { margin:0; line-height:1.5; overflow-wrap:anywhere; }
+#moduleStack .music-controls { gap:6px; }
+#moduleStack .music-controls .btn { flex:1; min-height:30px; white-space:nowrap; }
+#musicProgress { min-width:0; margin:0; width:100%; }
+#moduleStack .music-meta { margin:0; display:flex; flex-wrap:wrap; gap:6px 12px; }
+#moduleStack .music-meta label { min-width:0; white-space:nowrap; margin-left:auto; }
+#moduleStack .music-meta #musicVolume { width:85px; min-width:40px; margin:0; }
+#musicList { margin:0; max-height:150px; overflow:auto; }
+#musicList:empty { display:none; }
+#moduleStack .music-item button { min-width:0; }
+#moduleStack .music-item button[data-music-remove] { flex:0 0 28px; text-align:center; }
+#moduleStack [data-module="music"].is-empty .music-controls,
+#moduleStack [data-module="music"].is-empty #musicProgress,
+#moduleStack [data-module="music"].is-empty .music-meta { display:none; }
+#moduleStack button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+#moduleDialog { max-height:calc(100vh - 24px); overflow:auto; }
+@media(max-width:590px) {
+  #moduleStack { gap:10px; }
+  #moduleStack .calendar-grid button { min-height:32px; }
+}
+@media(max-width:320px) {
+  body { min-width:260px; }
+  .top, .search, .scenes { min-width:0; }
+  #moduleStack [data-module="time"] { grid-template-columns:1fr; }
+  #moduleStack .music-meta label { margin-left:0; }
+}
