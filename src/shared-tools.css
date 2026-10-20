@@ -33,6 +33,23 @@
 #moduleDialog .tool-personalization label { display:grid; gap:5px; color:var(--muted); font-size:12px; }
 #moduleDialog .tool-personalization select { width:100%; min-height:36px; border:1px solid var(--line); border-radius:10px; padding:7px 9px; background:var(--surface); color:var(--ink); }
 
+/* The rail has its own viewport budget; never shrink individual tools to fit. */
+#moduleCard.card.fit-viewport,
+body.desktop-home #moduleCard.card.fit-viewport {
+  max-height:var(--tool-rail-height);
+  overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable;
+  padding:2px 4px 5px 2px;
+}
+#moduleCard.card.fit-viewport::-webkit-scrollbar { width:6px; }
+#moduleCard.card.fit-viewport::-webkit-scrollbar-track { background:transparent; }
+#moduleCard.card.fit-viewport::-webkit-scrollbar-thumb { background:color-mix(in srgb,var(--muted) 42%,transparent); border-radius:8px; }
+#moduleCard.card.fit-viewport #moduleStack { gap:8px; }
+#moduleCard.card.fit-viewport #moduleStack > .module-panel { padding:12px; }
+#moduleCard.card.fit-viewport #moduleStack > [data-panel-size="compact"] { padding:8px; }
+#moduleCard.card.fit-viewport #moduleStack > [data-panel-size="large"] { padding:16px; }
+#moduleCard.card.fit-viewport #moduleStack > .is-combined-start { margin-bottom:-7px; }
+#moduleCard.card.fit-viewport:focus-visible { outline:2px solid var(--tool-accent); outline-offset:2px; }
+
 /* Tool personalization stays inside the single shared tool instance. */
 #moduleCard {
   --tool-accent:var(--accent);

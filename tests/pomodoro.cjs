@@ -1,0 +1,26 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),vm=require('node:vm');
+const {createTimer,validateSettings}=require('../pomodoro.cjs');
+let wall=0,mono=0,completed=[];const timer=createTimer({now:()=>wall,monotonic:()=>mono,onComplete:phase=>completed.push(phase),settings:{focus:1,break:1}});
+assert.equal(timer.snapshot().status,'idle');timer.command('start');wall+=10000;mono+=10000;assert.equal(timer.snapshot().remainingMs,50000);
+timer.command('pause');wall+=50000;mono+=50000;assert.equal(timer.snapshot().remainingMs,50000);assert.throws(()=>timer.configure({focus:2,break:1}));
+timer.command('start');wall+=999999;mono+=1000;assert.equal(timer.snapshot().remainingMs,49000,'forward clock edit ignored while awake');wall-=1999999;mono+=1000;assert.equal(timer.snapshot().remainingMs,48000,'backward clock edit cannot grow timer');
+mono+=48000;assert.equal(timer.snapshot().status,'completed');timer.snapshot(true);timer.snapshot();assert.deepEqual(completed,['focus'],'finish occurs exactly once');assert.equal(timer.snapshot().phase,'focus');timer.command('start');assert.equal(timer.snapshot().phase,'break');
+wall+=61000;assert.equal(timer.snapshot(true).status,'completed','sleep counted when monotonic clock stops');assert.deepEqual(completed,['focus','break']);timer.command('reset');assert.equal(timer.snapshot().status,'idle');
+assert.throws(()=>validateSettings({focus:1.5,break:5}));assert.throws(()=>validateSettings({focus:121,break:5}));assert.throws(()=>validateSettings({focus:25,break:0}));
+assert.equal(createTimer().snapshot().status,'idle','new process does not resume');
+let sleepWall=0,sleepMono=0;const partial=createTimer({settings:{focus:1,break:1},now:()=>sleepWall,monotonic:()=>sleepMono});partial.command('start');sleepWall+=20000;
+assert.equal(partial.snapshot(true).remainingMs,40000);sleepWall+=1000;sleepMono+=1000;assert.equal(partial.snapshot().remainingMs,39000,'partial sleep rebases deadline and immediately keeps counting');
+(async()=>{
+  const output=path.resolve(__dirname,'../test-results/pomodoro');await fs.mkdir(output,{recursive:true});const destination=path.join(output,'isolated-config.json');
+  const seed={version:1,library:{},scenes:{},tools:{order:['time','calendar','music']},music:{volume:.7},pomodoroSettings:{focus:25,break:5}};await fs.writeFile(destination,JSON.stringify(seed));
+  const source=await fs.readFile(path.resolve(__dirname,'../main.cjs'),'utf8');const slice=source.slice(source.indexOf('let configWriteQueue ='),source.indexOf('function base64url'));
+  let failRename=false;const context={JSON,Error,path,pomodoro:require('../pomodoro.cjs'),pomodoroSettings:{focus:25,break:5},pomodoroSettingsBusy:false,pomodoroTimer:createTimer(),publishPomodoro:()=>{},configPath:()=>destination,isConfigShape:()=>true,containsForbiddenReference:()=>false,hasUnsafeConfiguredPath:async()=>false,readConfig:async()=>({config:JSON.parse(await fs.readFile(destination,'utf8'))}),fs:{...fs,rename:async(...args)=>{if(failRename){failRename=false;throw new Error('synthetic write failure');}return fs.rename(...args);}}};
+  vm.createContext(context);vm.runInContext(slice+'\nthis.adapter={writeConfig,savePomodoroSettings};',context);
+  const before=structuredClone(seed);before.tools.order.push('pomodoro');const saving=context.adapter.savePomodoroSettings({focus:40,break:8});const staleLayout=context.adapter.writeConfig(before);await Promise.all([saving,staleLayout]);
+  let disk=JSON.parse(await fs.readFile(destination,'utf8'));assert.deepEqual(disk.pomodoroSettings,{focus:40,break:8});assert.equal(disk.music.volume,.7);assert.equal(disk.tools.order.at(-1),'pomodoro');
+  const prior=JSON.stringify(disk);failRename=true;await assert.rejects(context.adapter.savePomodoroSettings({focus:50,break:9}));assert.equal(JSON.stringify(JSON.parse(await fs.readFile(destination,'utf8'))),prior);assert.equal(context.pomodoroTimer.snapshot().settings.focus,40);
+  context.pomodoroTimer.command('start');const rejected=await context.adapter.savePomodoroSettings({focus:10,break:2});assert.equal(rejected.ok,false);assert.equal(context.pomodoroTimer.snapshot().settings.focus,40);
+  await fs.writeFile(path.join(output,'logic-report.json'),JSON.stringify({passed:true,scope:'Synthetic clock and actual main config queue adapter with isolated disk; no notifications/system changes.',checks:['start/pause/resume','clock forward/back','sleep completion','partial sleep keeps counting','one completion per stage','manual next phase','restart idle','invalid settings','concurrent stale layout preserves times','write failure keeps confirmed config','running blocks settings']},null,2));
+  console.log('Pomodoro clock and isolated real config queue checks passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

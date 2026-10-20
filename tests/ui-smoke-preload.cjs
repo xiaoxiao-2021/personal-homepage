@@ -2,10 +2,29 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 const completionTest=new URLSearchParams(window.location.search).has('completionTest');
+const assistantTest=new URLSearchParams(window.location.search).has('assistantTest');
+const pomodoroTest=new URLSearchParams(window.location.search).has('pomodoroTest');
+const quotaTest=new URLSearchParams(window.location.search).has('quotaTest');
 window.addEventListener('error', event => ipcRenderer.send('test:page-error', event.message));
 window.addEventListener('unhandledrejection', event => ipcRenderer.send('test:page-error', String(event.reason)));
 contextBridge.exposeInMainWorld('testControl', { failNextSave: () => ipcRenderer.invoke('test:fail-save') });
 contextBridge.exposeInMainWorld('homeApi', {
+  codexQuota: force => quotaTest ? ipcRenderer.invoke('test:quota-read',force===true) : Promise.resolve({status:'missing',message:'隔离测试：未连接 Codex。',windows:[],resetCredits:{availableCount:null,expirations:[]},fetchedAt:null,stale:true}),
+  pomodoroState: () => pomodoroTest ? ipcRenderer.invoke('test:pomo-state') : Promise.resolve({phase:'focus',status:'idle',remainingMs:1500000,settings:{focus:25,break:5},revision:0}),
+  pomodoroCommand: action => ipcRenderer.invoke('test:pomo-command',action),
+  pomodoroSettings: value => ipcRenderer.invoke('test:pomo-settings',value),
+  onPomodoroState: callback => {if(!pomodoroTest)return ()=>{};const handler=(_event,value)=>callback(value);ipcRenderer.on('test:pomo-state',handler);return ()=>ipcRenderer.removeListener('test:pomo-state',handler);},
+  assistantStatus: () => ipcRenderer.invoke('test:assistant-status'),
+  assistantSettings: value => ipcRenderer.invoke('test:assistant-settings',value),
+  assistantTest: () => ipcRenderer.invoke('test:assistant-test'),
+  assistantGenerate: value => ipcRenderer.invoke('test:assistant-generate',value),
+  assistantCreate: value => ipcRenderer.invoke('test:assistant-create',value),
+  assistantCancel: () => ipcRenderer.invoke('test:assistant-cancel'),
+  assistantClear: () => ipcRenderer.invoke('test:assistant-clear'),
+  assistantResolve: () => ipcRenderer.invoke('test:assistant-resolve'),
+  assistantSession: () => assistantTest ? ipcRenderer.invoke('test:assistant-session') : Promise.resolve(null),
+  assistantInput: value => {if(assistantTest)ipcRenderer.send('test:assistant-input',value);},
+  assistantPreview: value => {if(assistantTest)ipcRenderer.send('test:assistant-preview',value);},
   loadConfig: () => ipcRenderer.invoke('test:load'),
   saveConfig: (config) => ipcRenderer.invoke('test:save', config),
   backupConfig: async () => ({ canceled: true }),
@@ -18,6 +37,7 @@ contextBridge.exposeInMainWorld('homeApi', {
   didaStatus: () => completionTest ? ipcRenderer.invoke('test:dida-status') : Promise.resolve({ state: 'unconnected', message: '隔离测试：未连接' }),
   didaDashboard: () => completionTest ? ipcRenderer.invoke('test:dida-dashboard') : Promise.resolve({ source: 'none', tasks: [], projects: [] }),
   completeDidaTask: (projectId,taskId,occurrence) => ipcRenderer.invoke('test:dida-complete',projectId,taskId,occurrence),
+  completeDidaCheckItem:(projectId,taskId,itemId,occurrence,item)=>ipcRenderer.invoke('test:dida-complete-item',projectId,taskId,itemId,occurrence,item),
   connectDida: (write=false) => completionTest ? ipcRenderer.invoke('test:dida-connect',write) : Promise.resolve({ started: false }),
   disconnectDida: async () => ({}),
   setHotkey: async () => ({ ok: true }),

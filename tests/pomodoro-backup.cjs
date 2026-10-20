@@ -1,0 +1,25 @@
+'use strict';
+const fs=require('node:fs/promises'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict'),pomodoro=require('../pomodoro.cjs');
+(async()=>{
+  const output=path.resolve(__dirname,'../test-results/pomodoro'),destination=path.join(output,'backup-test-config.json'),backup=path.join(output,'backup.json');await fs.mkdir(output,{recursive:true});
+  const source=await fs.readFile(path.resolve(__dirname,'../main.cjs'),'utf8'),handlers=new Map(),checks=[];
+  const seed={version:1,library:{sample:{name:'合成入口'}},scenes:{sample:{apps:['sample']}},theme:'peach',tools:{version:2,order:['calendar','time','music']},music:{volume:.6},pomodoroSettings:{focus:40,break:8}};await fs.writeFile(destination,JSON.stringify(seed));
+  let choice=backup,linked='',failRename=false,accesses=[];
+  const forbidden=candidate=>String(candidate).replaceAll('/','\\').toLowerCase().startsWith('d:\\k science\\r 软件资料');
+  const context={JSON,Error,Object,Array,path,pomodoro,pomodoroSettings:{focus:40,break:8},pomodoroSettingsBusy:false,pomodoroTimer:pomodoro.createTimer({settings:{focus:40,break:8}}),publishPomodoro:()=>{},configPath:()=>destination,isConfigShape:value=>value?.version===1&&value.library&&value.scenes,containsForbiddenReference:()=>false,hasUnsafeConfiguredPath:async()=>false,isForbiddenPath:forbidden,containsSymlinkSegment:async candidate=>candidate===linked,dialogParentWindow:()=>null,
+    dialog:{showSaveDialog:async()=>({canceled:false,filePath:choice}),showOpenDialog:async()=>({canceled:false,filePaths:[choice]})},ipcMain:{handle:(name,callback)=>handlers.set(name,callback)},
+    fs:{...fs,readFile:async(file,...args)=>{assert(!forbidden(file)&&file!==linked,'no forbidden or linked reads');accesses.push(['read',file]);return fs.readFile(file,...args);},writeFile:async(file,...args)=>{assert(!forbidden(file)&&file!==linked,'no forbidden or linked writes');accesses.push(['write',file]);return fs.writeFile(file,...args);},rename:async(...args)=>{if(failRename){failRename=false;throw new Error('synthetic failure');}return fs.rename(...args);}},readConfig:async()=>({config:JSON.parse(await fs.readFile(destination,'utf8'))})};
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('let configWriteQueue ='),source.indexOf('function base64url')),context);
+  vm.runInContext(source.slice(source.indexOf("  ipcMain.handle('config:backup'"),source.indexOf("  ipcMain.handle('entry:choose-local'")),context);
+  const call=name=>handlers.get(name),check=(value,label)=>{assert(value,label);checks.push(label);};
+  const stale={...seed,pomodoroSettings:{focus:1,break:1}};
+  check(!(await call('config:backup')(null,stale)).canceled,'actual backup handler writes isolated file');const stored=JSON.parse(await fs.readFile(backup,'utf8'));check(stored.pomodoroSettings.focus===40&&!('remainingMs' in stored),'backup uses confirmed preferences without timer session');
+  context.pomodoroTimer.command('start');check((await call('config:restore')()).error.includes('重置'),'running restore refused');context.pomodoroTimer.command('reset');
+  const legacy={...seed};delete legacy.pomodoroSettings;await fs.writeFile(backup,JSON.stringify(legacy));check((await call('config:restore')()).config.theme==='peach','actual restore handler reads legacy config');
+  const disk=JSON.parse(await fs.readFile(destination,'utf8'));check(disk.pomodoroSettings.focus===25&&disk.pomodoroSettings.break===5&&disk.music.volume===.6&&disk.library.sample.name==='合成入口','old backup defaults timer and retains unrelated content');check(context.pomodoroTimer.snapshot().status==='idle','restore does not start timing');
+  await fs.writeFile(backup,JSON.stringify(seed));failRename=true;check((await call('config:restore')()).error.includes('未成功'),'restore write failure explicit');check(JSON.parse(await fs.readFile(destination,'utf8')).pomodoroSettings.focus===25&&context.pomodoroSettings.focus===25,'restore failure keeps previous preferences and disk');
+  choice='D:\\K science\\R 软件资料\\not-accessed.json';let count=accesses.length;check((await call('config:restore')()).error.includes('拒绝')&&(await call('config:backup')(null,seed)).error.includes('拒绝'),'protected path rejected before IO');check(accesses.length===count,'protected path never accessed');
+  choice=linked=path.join(output,'synthetic-link.json');count=accesses.length;check((await call('config:restore')()).error.includes('拒绝')&&(await call('config:backup')(null,seed)).error.includes('拒绝'),'synthetic linked path rejected before IO');check(accesses.length===count,'linked path never read or written');
+  await fs.writeFile(path.join(output,'backup-report.json'),JSON.stringify({checks,scope:'Actual production backup/restore handlers executed in isolated VM; real project-local disk, substituted file chooser and path classification. No native chooser/Windows restore tested.'},null,2));console.log('Pomodoro actual backup/restore handler checks passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

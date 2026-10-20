@@ -24,7 +24,13 @@ for (const scene of ['总览', '🏥 临床', '🔬 科研', '📚 学习', '�
   if (!migrated.scenes[scene].layout.modules || migrated.scenes[scene].layout.modules.visible.tasks === undefined) throw new Error(`scene modules missing: ${scene}`);
 }
 
-if (migrated.tools.version !== 2 || migrated.tools.accent !== 'theme' || migrated.tools.clockFormat !== '24') throw new Error('tool v2 defaults were not migrated');
+if (migrated.tools.version !== 4 || migrated.tools.accent !== 'theme' || migrated.tools.clockFormat !== '24') throw new Error('tool v4 defaults were not migrated');
+if (!migrated.tools.visible.pomodoro || !migrated.tools.order.includes('pomodoro') || migrated.tools.sizes.pomodoro!=='compact') throw new Error('pomodoro defaults missing');
+if (!migrated.tools.visible.codexQuota || migrated.tools.order.at(-1)!=='codexQuota' || !migrated.tools.codexQuotaCollapsed) throw new Error('quota defaults missing');
+const hidden=normalizeTools({version:2,visible:{time:false,calendar:false,music:false}},null);
+if(hidden.visible.pomodoro||hidden.visible.codexQuota)throw new Error('previously hidden tool rail was reopened');
+const v3=normalizeTools({version:3,visible:{pomodoro:false},order:['pomodoro','calendar','music','time'],sizes:{pomodoro:'large'}},null);
+if(v3.visible.pomodoro||v3.order[0]!=='pomodoro'||v3.sizes.pomodoro!=='large')throw new Error('v3 saved preferences lost');
 const custom = JSON.parse(JSON.stringify(migrated));
 custom.tools = normalizeTools({ version:2, visible: { time: false, calendar: true, music: false, unknown: true }, order: ['calendar', 'unknown', 'music', 'time'], musicCollapsed: true, accent:'mist', clockFormat:'12', clockSize:'large', calendarDensity:'compact' }, null);
 const preserved = normalizeConfigWithTools(custom);

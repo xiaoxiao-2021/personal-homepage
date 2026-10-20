@@ -188,6 +188,15 @@ summary:focus-visible, [tabindex]:focus-visible {
 .task-complete:disabled { opacity: .55; cursor: not-allowed; }
 .task-body { min-width: 0; flex: 1 1 120px; overflow-wrap: anywhere; }
 .task-complete-error { display: block; color: var(--ink); border-left: 2px solid var(--accent); padding-left: 6px; }
+.task-group .check-item { display:flex; align-items:flex-start; flex-wrap:wrap; gap:6px 8px; padding:2px 0 0; margin-left:28px; font-size:12px; color:var(--ink); }
+.check-item .check-item-complete { position:relative; flex:0 0 24px; width:24px; height:24px; min-height:24px; padding:4px; border:0; border-radius:6px; background:var(--solid); background-clip:content-box; color:var(--accent); box-shadow:none; font-size:11px; line-height:16px; }
+.check-item .check-item-complete::before { content:''; position:absolute; inset:4px; box-sizing:border-box; border:1px solid color-mix(in srgb,var(--muted) 70%,var(--accent)); border-radius:4px; pointer-events:none; }
+.check-item .check-item-complete:hover:not(:disabled) { background-color:var(--soft); background-clip:content-box; }
+.check-item .check-item-complete:hover:not(:disabled)::before { border-color:var(--accent); }
+.check-item-title { flex:1; min-width:0; overflow-wrap:anywhere; line-height:1.65; }
+.check-item.is-completed .check-item-title { color:var(--muted); text-decoration:line-through; }
+.check-item.is-completed .check-item-complete { opacity:1; background-color:var(--soft); color:var(--accent); }
+.check-item .task-complete-error { flex-basis:100%; margin-left:32px; }
 .task-view-controls select { min-height: var(--ui-compact-control); border-radius: 9px; }
 .tasks { scrollbar-gutter: stable; }
 

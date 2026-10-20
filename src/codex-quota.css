@@ -1,0 +1,15 @@
+/* Local quota card only; existing shared-tool surfaces, sizes and theme tokens own the layout. */
+.quota-panel { gap:8px; }
+.quota-panel .module-title { align-items:center; gap:8px; flex-wrap:wrap; }
+.quota-panel .module-actions { margin-left:auto; gap:8px; }
+.quota-panel .module-actions .btn { min-height:32px; padding:5px 8px; }
+.quota-summary { display:flex; flex-wrap:wrap; gap:6px; font-size:13px; line-height:1.6; }
+.quota-chip { padding:3px 8px; border-radius:8px; background:var(--soft); color:var(--ink); overflow-wrap:anywhere; }
+.quota-panel .module-muted { font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.quota-window { display:grid; gap:6px; padding:10px 0; border-top:1px solid var(--line); }
+.quota-window-head { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:13px; overflow-wrap:anywhere; }
+.quota-window progress { appearance:auto; width:100%; height:8px; accent-color:var(--accent); }
+.quota-explanation { margin:8px 0 0; }
+.quota-panel .quota-warning { color:var(--ink); }
+.quota-panel [hidden] { display:none; }
+@media(prefers-reduced-motion:reduce){.quota-panel * { transition:none; }}

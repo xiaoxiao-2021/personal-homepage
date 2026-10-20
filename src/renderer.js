@@ -5,23 +5,25 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const uid = () => `entry-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const desktopMode = new URLSearchParams(location.search).get('desktop') === '1';
 function moduleDefaults(preset='standard') { const life=preset==='life'; return { visible:{tasks:true,apps:true,side:!life,time:life,calendar:life,music:life}, order:['tasks','apps',...(life?['time','calendar','music']:['side'])], sizes:{tasks:'medium',apps:'medium',side:'medium',time:'medium',calendar:'medium',music:'medium'} }; }
-function toolDefaults() { return { version:2, visible:{time:true,calendar:true,music:true}, order:['time','calendar','music'], sizes:{time:'medium',calendar:'medium',music:'medium'}, musicCollapsed:false, accent:'theme', clockFormat:'24', clockSize:'standard', calendarDensity:'standard' }; }
+function toolDefaults() { return { version:4, visible:{time:true,calendar:true,music:true,pomodoro:true,codexQuota:true}, order:['time','calendar','music','pomodoro','codexQuota'], sizes:{time:'medium',calendar:'medium',music:'medium',pomodoro:'compact',codexQuota:'compact'}, musicCollapsed:false, codexQuotaCollapsed:true, accent:'theme', clockFormat:'24', clockSize:'standard', calendarDensity:'standard' }; }
 function normalizeTools(saved, fallback) {
   const base=toolDefaults();
   const source=saved&&typeof saved==='object'?saved:(fallback&&typeof fallback==='object'?fallback:{});
   const visible=Object.fromEntries(base.order.map(key=>[key,typeof source.visible?.[key]==='boolean'?source.visible[key]:base.visible[key]]));
+  if(typeof source.visible?.pomodoro!=='boolean'&&['time','calendar','music'].every(key=>source.visible?.[key]===false))visible.pomodoro=false;
+  if(typeof source.visible?.codexQuota!=='boolean'&&['time','calendar','music'].every(key=>source.visible?.[key]===false)&&source.visible?.pomodoro!==true)visible.codexQuota=false;
   const order=Array.isArray(source.order)?source.order.filter((key,index,array)=>base.order.includes(key)&&array.indexOf(key)===index):base.order.slice();
   for(const key of base.order)if(!order.includes(key))order.push(key);
   const sizes=Object.fromEntries(base.order.map(key=>[key,['compact','medium','large'].includes(source.sizes?.[key])?source.sizes[key]:base.sizes[key]]));
   return {
-    version:2,visible,order,sizes,musicCollapsed:Boolean(source.musicCollapsed),
+    version:4,visible,order,sizes,musicCollapsed:Boolean(source.musicCollapsed),codexQuotaCollapsed:typeof source.codexQuotaCollapsed==='boolean'?source.codexQuotaCollapsed:true,
     accent:['theme','green','mist','brown'].includes(source.accent)?source.accent:base.accent,
     clockFormat:['12','24'].includes(String(source.clockFormat))?String(source.clockFormat):base.clockFormat,
     clockSize:['standard','large'].includes(source.clockSize)?source.clockSize:base.clockSize,
     calendarDensity:['standard','compact'].includes(source.calendarDensity)?source.calendarDensity:base.calendarDensity
   };
 }
-function toolsNeedMigration(config){const source=config?.tools;return !source||Number(source.version)<2||!['theme','green','mist','brown'].includes(source.accent)||!['12','24'].includes(String(source.clockFormat))||!['standard','large'].includes(source.clockSize)||!['standard','compact'].includes(source.calendarDensity);}
+function toolsNeedMigration(config){const source=config?.tools;return !source||Number(source.version)<4||!['theme','green','mist','brown'].includes(source.accent)||!['12','24'].includes(String(source.clockFormat))||!['standard','large'].includes(source.clockSize)||!['standard','compact'].includes(source.calendarDensity);}
 function defaultLayout(focus='normal', heightMode='content', preset='standard') { return { order:['tasks','apps','side'], focus, heights:{tasks:heightMode,apps:heightMode,side:heightMode}, entrySize:'medium', spacing:'comfortable', entryStyle:'tiles', showUnsetEntries:true, modules:moduleDefaults(preset) }; }
 function defaultTaskView() { return { range:'scene', dates:'all', inboxProjectId:'' }; }
 function defaultTaskViews() { return Object.fromEntries(SCENES.map((scene)=>[scene,defaultTaskView()])); }
@@ -80,11 +82,25 @@ async function submitTaskCompletion(task) {
 function requestTaskCompletion(task) {
   if(editing||layoutSaveInFlight)return;
   if(!dida.canComplete){openCompletionPermission();return;}
-  if(task.repeatFlag||(task.checkItems||task.subtasks||[]).some(item=>Number(item.status)!==2)){
+  if(task.repeatFlag||(task.checkItems||task.subtasks||[]).length){
     completionConfirmTask=task;$('#taskCompleteConfirmText').textContent=`完成“${task.title}”？${task.repeatFlag?'这是重复任务，只完成当前实例；下一次安排由滴答生成。':''} ${(task.checkItems||task.subtasks||[]).length?'这将完成整个父任务，而不是单个检查项。':''}本页不提供撤销，请确认后操作。`;
     $('#taskCompleteConfirmDialog').showModal();return;
   }
   void submitTaskCompletion(task);
+}
+async function submitCheckItemCompletion(task,item){
+  const parentKey=JSON.stringify([task.projectId,task.id]),key=JSON.stringify([task.projectId,task.id,item.id]);
+  if(editing||layoutSaveInFlight||taskCompletionPending.has(parentKey)||Number(item.status)!==0)return;
+  if(!dida.canComplete){openCompletionPermission();return;}
+  taskCompletionPending.add(parentKey);taskCompletionErrors.delete(key);renderTasks({preserveScroll:true});
+  try{
+    const occurrence=JSON.stringify([task.id,task.projectId,task.dueDate||null,task.startDate||null,task.repeatFlag||null]);
+    const signature=JSON.stringify([String(item.id||''),String(item.title||''),Number(item.status??0)]);
+    const result=await window.homeApi.completeDidaCheckItem(task.projectId,task.id,item.id,occurrence,signature);
+    if(!result?.ok){taskCompletionErrors.set(key,result?.message||'小项完成未确认，请刷新核对。');if(result?.code==='scope')openCompletionPermission();}
+    else{applyDidaDashboard(result.dashboard);toast(result.warning||(result.alreadyCompleted?'这个小项已经完成，列表已更新。':'小项已同步完成，父任务保持原状。'));}
+  }catch{taskCompletionErrors.set(key,'小项提交结果尚未确认，请先刷新核对。');}
+  finally{taskCompletionPending.delete(parentKey);renderTasks({preserveScroll:true});renderStatus();}
 }
 let refreshInFlight = false;
 let lastDidaAttemptAt = 0;
@@ -114,6 +130,12 @@ function normalizeConfigWithTools(config) {
   const normalized=normalizeWithModules(config);
   const legacy=config?.scenes?.['🏠 生活']?.layout?.modules;
   normalized.tools=normalizeTools(config?.tools,legacy);
+  const previousAssistant=config?.assistantLayout;
+  normalized.assistantLayout={version:1,visible:previousAssistant?.visible!==false,height:['compact','medium','tall'].includes(previousAssistant?.height)?previousAssistant.height:'medium',fitWindow:previousAssistant?.fitWindow!==false};
+  if(!previousAssistant){
+    normalized.assistantLayout.previousTaskHeights={};
+    for(const scene of SCENES){const layout=normalized.scenes[scene].layout;if(layout.heights.tasks==='content'){normalized.assistantLayout.previousTaskHeights[scene]='content';layout.heights.tasks='medium';}}
+  }else if(previousAssistant.previousTaskHeights)normalized.assistantLayout.previousTaskHeights=clone(previousAssistant.previousTaskHeights);
   return normalized;
 }
 function sceneTaskView(scene=state.scene) { return scene==='总览' ? (state.taskView || state.taskViews?.[scene] || defaults.taskView) : (state.taskViews?.[scene] || defaults.taskView); }
@@ -168,7 +190,7 @@ function todayKey(){return dateKey(new Date().toISOString(),false);}
 function groupForProject(projectId){return DIDA_GROUPS.find((group)=>state.didaListIds?.[group.key]===projectId)||null;}
 function taskDate(task){return HomeTaskView.taskDate(task);}
 function taskView(task,projectName=new Map()) {
-  const overdue=Boolean(task.dueDate&&dateKey(task.dueDate,task.isAllDay)!=='invalid'&&dateKey(task.dueDate,task.isAllDay)<todayKey());
+  const overdue=HomeTaskView.isOverdue(task,todayKey());
   const node=make('div',`task ${overdue?'task-overdue':''}`),key=JSON.stringify([task.projectId,task.id]);
   const mark=make('button','task-complete',taskCompletionPending.has(key)?'…':'');mark.type='button';mark.dataset.taskId=task.id;
   mark.setAttribute('role','checkbox');mark.setAttribute('aria-checked','false');mark.setAttribute('aria-label',`完成任务：${task.title}`);
@@ -176,9 +198,21 @@ function taskView(task,projectName=new Map()) {
   mark.disabled=editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
   mark.title=taskCompletionPending.has(key)?'正在同步完成…':!live?'请联网刷新后再完成任务':!dida.canComplete?'点击了解如何启用完成任务':'同步完成此任务';
   mark.onclick=()=>requestTaskCompletion(task);node.append(mark);
-  const text=make('span','task-body');text.append(make('span','',task.title));const notes=[];if(overdue)notes.push('逾期');if(task.repeatFlag)notes.push('重复');const scheduled=taskDate(task);if(!task.isAllDay&&scheduled){const parsed=new Date(scheduled);if(!Number.isNaN(parsed.valueOf()))notes.push(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed));}if(task.startDate&&!task.dueDate)notes.push(`开始于 ${formatTaskDay(dateKey(task.startDate,task.isAllDay))}`);if(notes.length)text.append(make('small','',notes.join(' · ')));
+  const text=make('span','task-body');text.append(make('span','',task.title));const notes=[];if(overdue)notes.push('逾期');if(task.repeatFlag)notes.push('重复');const scheduled=taskDate(task);if(!task.isAllDay&&scheduled){const parsed=new Date(scheduled);if(!Number.isNaN(parsed.valueOf()))notes.push(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed));}if(task.startDate&&!task.dueDate)notes.push(`开始于 ${formatTaskDay(HomeTaskView.taskFieldDay(task,'startDate'))}`);if(notes.length)text.append(make('small','',notes.join(' · ')));
   if(taskCompletionErrors.has(key)){const error=make('small','task-complete-error',taskCompletionErrors.get(key));error.setAttribute('role','alert');text.append(error);}
-  node.append(text);const listName=task.__projectName||projectName.get(task.projectId);if(listName)node.append(make('small','task-list-name',listName));(task.checkItems||task.subtasks||[]).filter((item)=>Number(item.status)!==2).forEach((item)=>node.append(make('div','subtask',`↳ ${item.title}`)));return node;
+  node.append(text);const listName=task.__projectName||projectName.get(task.projectId);if(listName)node.append(make('small','task-list-name',listName));
+  if(Array.isArray(task.checkItems))for(const item of task.checkItems){
+    const done=Number(item.status)===1,row=make('div',`subtask check-item${done?' is-completed':''}`),button=make('button','task-complete check-item-complete',done?'✓':taskCompletionPending.has(key)?'…':'');
+    button.type='button';button.dataset.checkItemId=item.id;button.dataset.parentTaskId=task.id;button.setAttribute('role','checkbox');button.setAttribute('aria-checked',String(done));button.setAttribute('aria-label',`${done?'已完成小项':'完成小项'}：${item.title}（${task.title}）`);
+    button.disabled=done||Number(item.status)!==0||!item.id||editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
+    button.title=done?'已同步完成；首页暂不提供撤销':!item.id?'此小项缺少稳定标识，请刷新':Number(item.status)!==0?'小项状态无法识别，请联网刷新':!live?'请联网刷新后再勾选小项':'仅完成这个小项，不完成父任务';
+    button.onclick=event=>{event.stopPropagation();void submitCheckItemCompletion(task,item);};
+    const label=make('span','check-item-title',item.title);row.append(button,label);
+    const error=taskCompletionErrors.get(JSON.stringify([task.projectId,task.id,item.id]));if(error){const message=make('small','task-complete-error',error);message.setAttribute('role','alert');row.append(message);}
+    node.append(row);
+  }
+  else (task.subtasks||[]).filter(item=>Number(item.status)!==2).forEach(item=>node.append(make('div','subtask',`↳ ${item.title}`)));
+  return node;
 }
 function taskGroup(title,tasks,emptyLabel='今天暂无任务',emptyTone=''){
   if(!tasks.length){const row=make('div',`task-group empty-group ${emptyTone}`.trim());row.append(make('strong','',title),make('span','task-state',emptyLabel));return row;}
@@ -228,7 +262,7 @@ function renderTasks({preserveScroll=false}={}) {
   const failedSelected=sourceKey==='partial'&&(unknownFailures||projectIds.some(id=>failedIds.has(id)));
   if(sourceKey==='partial')host.append(make('div','task-banner task-message-warning',`部分同步：${Number(didaDashboard.failedCount)||0} 个清单读取失败；${failedSelected?'当前选择范围可能不完整。':'当前选择的清单已成功读取。'}`));
   let tasks=(didaDashboard.tasks||[]).filter(task=>Number(task.status)!==2&&projectIds.includes(task.projectId));
-  if(view.dates==='today')tasks=tasks.filter(task=>HomeTaskView.taskDay(task)===todayKey()||(task.dueDate&&dateKey(task.dueDate,task.isAllDay)!=='invalid'&&dateKey(task.dueDate,task.isAllDay)<todayKey()));
+  if(view.dates==='today')tasks=tasks.filter(task=>HomeTaskView.taskDay(task)===todayKey()||HomeTaskView.isOverdue(task,todayKey()));
   tasks.sort(HomeTaskView.compareTasks);
   if(view.dates==='today'){
     if(view.range==='inbox'){
@@ -358,13 +392,13 @@ function renderModules(){
   }
   const collapse=$('#musicCollapse');
   if(collapse){collapse.textContent=tools.musicCollapsed?'展开':'折叠';collapse.setAttribute('aria-expanded',String(!tools.musicCollapsed));}
-  renderTimeModule();renderCalendar();renderMusic();
+  renderTimeModule();renderCalendar();renderMusic();window.dispatchEvent(new Event('homepage-tools-rendered'));
 }
 function renderModuleManager(){
   const sceneModules=normalizeModules(current().layout.modules,state.scene);
   const tools=normalizeTools(state.tools);
   const sceneLabels={tasks:'任务',apps:'常用入口',side:'项目与资料'};
-  const toolLabels={time:'时间',calendar:'日历',music:'本地音乐'};
+  const toolLabels={time:'时间',calendar:'日历',music:'本地音乐',pomodoro:'番茄钟',codexQuota:'Codex 额度'};
   const fillChecks=(host,labels,visible,sizes,prefix)=>{
     host.replaceChildren();
     Object.keys(labels).forEach(key=>{
@@ -412,7 +446,7 @@ function resetToolManagerDraft(){
   $$('[data-tool-visible]').forEach(box=>box.checked=tools.visible[box.dataset.toolVisible]!==false);
   $$('[data-tool-size]').forEach(select=>select.value=tools.sizes[select.dataset.toolSize]);
   $('#toolAccent').value=tools.accent;$('#toolClockFormat').value=tools.clockFormat;$('#toolClockSize').value=tools.clockSize;$('#toolCalendarDensity').value=tools.calendarDensity;$('#toolMusicMode').value=tools.musicCollapsed?'compact':'expanded';
-  const labels={time:'时间',calendar:'日历',music:'本地音乐'},order=$('#toolOrder');order.replaceChildren();tools.order.forEach(key=>{const option=make('option','',labels[key]);option.value=key;order.append(option);});if(order.options[0])order.options[0].selected=true;
+  const labels={time:'时间',calendar:'日历',music:'本地音乐',pomodoro:'番茄钟',codexQuota:'Codex 额度'},order=$('#toolOrder');order.replaceChildren();tools.order.forEach(key=>{const option=make('option','',labels[key]);option.value=key;order.append(option);});if(order.options[0])order.options[0].selected=true;
   toast('共用工具默认值已放入管理面板；请先“应用到布局”，再保存布局。');
 }
 
@@ -448,7 +482,7 @@ renderLayout=function(){
   const tools=normalizeTools(state.tools);
   const showModules=Object.values(tools.visible).some(Boolean);
   $('#workspace').classList.toggle('no-shared-tools',!showModules);
-  for(const card of $$('#workspace > .card')){
+  for(const card of $$('#workspace [data-card]')){
     if(card.dataset.card==='modules'){
       card.hidden=!showModules;card.draggable=false;card.style.order='2';card.classList.add('height-content');card.style.removeProperty('--card-height');
     }else if(['tasks','apps','side'].includes(card.dataset.card)){
@@ -457,6 +491,8 @@ renderLayout=function(){
   }
   $('#moduleManagerBtn').hidden=!editing;
   renderModules();
+  window.taskAssistant?.renderLayout();
+  window.pomodoroUI?.layoutChanged();
 };
 function startEdit(){ if(editing||layoutSaveInFlight)return;const startedAt=performance.now();editing=true;draft=clone(state);render();recordUiTiming('edit',startedAt); }
 function setLayoutSaveUi(saving){document.body.classList.toggle('layout-saving',saving);for(const id of ['editBtn','cancelEditBtn','cleanLayoutBtn','moduleManagerBtn','themeBtn','settingsBtn','desktopModeBtn']){const node=$('#'+id);if(node)node.disabled=saving;}if(saving)$('#editBtn').textContent='正在保存…';}
@@ -534,14 +570,14 @@ async function refreshDidaStatus({silent=false}={}){if(refreshInFlight)return;re
 async function load(){
   const loaded=await window.homeApi.loadConfig();
   restoreCalendarSession(await window.homeApi.calendarState?.());
-  const needsTools=toolsNeedMigration(loaded?.config);
+  const needsTools=toolsNeedMigration(loaded?.config)||!loaded?.config?.assistantLayout;
   state=normalizeConfigWithTools(loaded.config);
   if(needsTools){
     try{if(await window.homeApi.saveConfig(clone(state))===false)throw new Error('save failed');}
     catch{toast('共用右侧工具区迁移未能保存；本次运行仍可使用，稍后可重试。');}
   }
   if(loaded.recovered)toast('原配置无法读取，已安全恢复默认布局。');
-  render();requestAnimationFrame(()=>window.homeApi.pageReady());
+  render();window.homepageReady=true;window.dispatchEvent(new Event('homepage-ready'));requestAnimationFrame(()=>window.homeApi.pageReady());
   const hotkey=await window.homeApi.setHotkey(state.shortcut);if(!hotkey.ok)toast('默认唤回快捷键不可用，请在设置中重新选择。');
   void refreshDidaStatus({silent:true});
 }
@@ -600,6 +636,9 @@ async function completeTransition(choice){
   finally{transitionRunning=false;}
 }
 function requestPageTransition(action){
+  if(window.pomodoroUI?.busySaving()){toast('番茄钟时长正在保存，请稍候再切换窗口或退出。');return;}
+  if(window.taskAssistant?.busyCreating()){toast('任务正在创建，请等待结果后再切换窗口或退出。');return;}
+  window.taskAssistant?.prepareTransition();
   if(taskCompletionPending.size){toast('任务正在同步完成，请等结果返回后再切换窗口或退出。');return;}
   if($('#taskPermissionDialog').open||$('#taskCompleteConfirmDialog').open){toast('请先关闭任务操作窗口。');return;}
   if($('#entryDialog').open||$('#settingsDialog').open){toast('请先保存或关闭当前入口/设置窗口，再切换首页模式。');return;}

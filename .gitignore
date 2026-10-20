@@ -26,6 +26,29 @@
 **/homepage-startup-recovery.json
 **/dida-credential.bin
 **/dida-dashboard-cache.bin
+**/deepseek-credential.bin
+**/assistant-submission.bin
+**/*.bin
+**/auth.json
+**/auth.json.*
+**/credentials.json
+**/profile/
+**/profiles/
+**/Cache/
+**/Code Cache/
+**/GPUCache/
+**/Local Storage/
+**/Session Storage/
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.webp
+**/*.wav
+**/*.mp3
+**/*.mp4
 **/personal-homepage-backup*.json
 **/*.pem
 **/*.key

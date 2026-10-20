@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, clipboard, safeStorage, screen, powerMonitor, protocol, net } = require('electron');
+const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, clipboard, safeStorage, screen, powerMonitor, protocol, net, Notification } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
@@ -9,8 +9,23 @@ const http = require('node:http');
 const { validateEntry, launchValidatedEntry } = require('./local-entry.cjs');
 const { createEntryIconResolver } = require('./entry-icon.cjs');
 const { hasWriteScope, createDidaCompletion } = require('./dida-completion.cjs');
+const {createCheckItemCompletion}=require('./dida-check-items.cjs');
+const assistant = require('./task-assistant.cjs');
+const pomodoro=require('./pomodoro.cjs');
+const codexQuota=require('./codex-quota.cjs');
+const quotaService=codexQuota.createService({find:()=>codexQuota.locateExecutable({
+  appData:app.getPath('appData'),
+  localAppData:process.env.LOCALAPPDATA||path.join(path.dirname(app.getPath('appData')),'Local')
+})});
+let pomodoroSettings=pomodoro.normalizeSettings(null),pomodoroSettingsBusy=false,pomodoroInterval=null;
+function publishPomodoro(){const value=pomodoroTimer.snapshot();for(const win of [mainWindow,trialWindow]){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:state',value);}return value;}
+const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
+  const visible=[mainWindow,trialWindow].some(win=>win&&!win.isDestroyed()&&win.isVisible()&&!win.isMinimized());
+  if(!visible&&Notification.isSupported())try{const notice=new Notification({title:'个人首页 · 番茄钟',body:phase==='focus'?'本轮专注已完成，回来开始休息吧。':'休息结束，可以开始下一轮专注。',silent:true});notice.on('click',showHomepage);notice.show();}catch{/* Completion remains in timer state if Windows notifications are unavailable. */}
+  publishPomodoro();
+}});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.05.3';
+const BUILD_ID = '2026.10.20.2';
 const processStartedAt = process.hrtime.bigint();
 const loginStartupLaunch = process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
@@ -68,7 +83,115 @@ const DIDA_REGISTER_URL = 'https://api.dida365.com/oauth/register';
 const DIDA_AUTHORIZE_URL = 'https://dida365.com/oauth/authorize';
 const DIDA_TOKEN_URL = 'https://api.dida365.com/oauth/token';
 const DIDA_API_URL = 'https://api.dida365.com/open/v1';
+const aiCredentialPath = () => path.join(app.getPath('userData'), 'deepseek-credential.bin');
+const aiSubmissionPath = () => path.join(app.getPath('userData'), 'assistant-submission.bin');
+let aiController = null, aiCreating = false, aiSettingsTail = Promise.resolve();
+let aiSession = { messages: [], input: '', preview: null, lastCreated: null };
+let aiDraft = null;
+const taskWriter = assistant.createTaskWriter({getCredential:readDidaCredential,getDashboard:()=>latestDidaDashboard,apiUrl:DIDA_API_URL});
+async function aiSubmissionState() {
+  try {
+    const bytes=await fs.readFile(aiSubmissionPath());
+    if(!safeStorage.isEncryptionAvailable())return {uncertain:true};
+    const value=JSON.parse(safeStorage.decryptString(bytes));
+    return typeof value?.uncertain==='boolean'?value:{uncertain:true};
+  } catch(error){return error.code==='ENOENT'?{uncertain:false}:{uncertain:true};}
+}
+async function aiStatus() {
+  const saved=await readProtectedJson(aiCredentialPath());
+  return {configured:Boolean(saved?.key),model:assistant.MODELS.includes(saved?.model)?saved.model:assistant.MODELS[0],models:assistant.MODELS};
+}
+function aiSaveSettings(value) {
+  const pending=aiSettingsTail.then(async()=>{
+    if(aiController||aiCreating)return {ok:false,message:'请求进行中，请等结果返回后再修改密钥。'};
+    try {
+      if(value?.remove===true){await fs.rm(aiCredentialPath(),{force:true});return {ok:true,...await aiStatus()};}
+      if(!assistant.MODELS.includes(value?.model))return {ok:false,message:'请选择有效模型。'};
+      const previous=await readProtectedJson(aiCredentialPath());
+      const key=typeof value.key==='string'?value.key.trim():'';
+      if(key&&(!/^[\x21-\x7e]{10,256}$/.test(key)))return {ok:false,message:'密钥格式不正确；原密钥保持不变。'};
+      if(!key&&!previous?.key)return {ok:false,message:'请输入自己的 DeepSeek API Key。'};
+      await writeProtectedJson(aiCredentialPath(),{key:key||previous.key,model:value.model});
+      return {ok:true,...await aiStatus()};
+    } catch {return {ok:false,message:'密钥保存失败或系统加密不可用；原设置保持不变。'};}
+  });aiSettingsTail=pending.catch(()=>{});return pending;
+}
+async function aiGenerate(value) {
+  if(aiController||aiCreating)return {ok:false,message:'已有请求正在进行。'};
+  const controller=new AbortController();aiController=controller;
+  try {
+    if((await aiSubmissionState()).uncertain)return {ok:false,message:'上次创建结果不确定。请先核对滴答客户端并解除提示。'};
+    const config=(await readConfig()).config;
+    if(!config?.scenes?.[value?.scene])return {ok:false,message:'场景尚未保存，请先保存布局。'};
+    const dashboard=latestDidaDashboard;
+    const projects=(dashboard?.projects||[]).filter(p=>!dashboard.failedProjectIds?.includes(p.id));
+    const mapping={'🏥 临床':'clinical','🔬 科研':'research','📚 学习':'study','🏠 生活':'life'};
+    const defaultProjectId=config.didaListIds?.[mapping[value.scene]]||'';
+    const saved=await readProtectedJson(aiCredentialPath());
+    if(controller.signal.aborted)return {ok:false,message:'已取消生成；没有创建任务。'};
+    const sentAt=new Date(),clock=assistant.localContext(sentAt);
+    const baseline=aiDraft?`${aiDraft.id}:${aiDraft.revision}`:'';
+    let activeDraft=null;
+    if(aiSession.preview){
+      try{activeDraft=assistant.validateDraft(aiSession.preview.task,projects);}
+      catch{return {ok:false,message:'当前便签有未填完或失效的字段，请先编辑并核对；原便签保留。'};}
+    }
+    const result=await assistant.generate({key:saved?.key,model:saved?.model||assistant.MODELS[0],input:value.input,scene:value.scene,projects,defaultProjectId,history:aiSession.messages,activeDraft,lastCreated:aiSession.lastCreated?.task,signal:controller.signal,now:sentAt});
+    if(controller.signal.aborted)return {ok:false,message:'已取消生成；没有创建任务。'};
+    if(baseline!==(aiDraft?`${aiDraft.id}:${aiDraft.revision}`:''))return {ok:false,message:'便签已经手动修改，已忽略旧回复；当前便签保留。'};
+    if(result.ok){
+      aiSession.messages.push({role:'user',content:value.input},{role:'assistant',content:result.kind==='draft'?JSON.stringify(result.task):result.message});
+      aiSession.messages=aiSession.messages.slice(-12);
+      if(result.kind==='draft'){
+        aiDraft={id:assistant.newId(),revision:1,scene:value.scene,projects:projects.map(p=>({id:p.id,name:p.name})),timeZone:clock.timeZone,sentAt:`${clock.date} ${clock.time}`,previousCreated:Boolean(aiSession.lastCreated)};
+        result.preview={...aiDraft,task:result.task};aiSession.preview=result.preview;
+      }
+    }
+    return result;
+  } finally {if(aiController===controller)aiController=null;}
+}
+async function aiCreate(value) {
+  if(aiCreating)return {ok:false,message:'创建正在提交，请等待结果；不会重复发送。'};
+  if(aiController)return {ok:false,message:'请先等待生成结束或取消生成，再确认草稿。'};
+  if(didaAuthorization)return {ok:false,message:'滴答授权正在进行，请完成授权并刷新后再创建。'};
+  if(!aiDraft||value?.id!==aiDraft.id||value?.revision!==aiDraft.revision)return {ok:false,message:'便签已变化，请查看最新便签再确认。'};
+  try{if(JSON.stringify(assistant.validateDraft(value.task,aiDraft.projects))!==JSON.stringify(assistant.validateDraft(aiSession.preview?.task,aiDraft.projects)))return {ok:false,message:'便签内容尚未同步，请核对最新便签再确认。'};}
+  catch(error){return {ok:false,message:error.message+' 原便签保留。'};}
+  if(aiDraft.timeZone!==assistant.localContext().timeZone)return {ok:false,message:'电脑时区已改变，请重新生成并核对日期。'};
+  aiCreating=true;
+  try {
+    const prior=await aiSubmissionState();
+    if(prior?.uncertain)return {ok:false,code:'uncertain',message:'上次结果尚未核对，已阻止重复提交。'};
+    // Persist a crash/timeout latch BEFORE any write request. No task body or key here.
+    try {await writeProtectedJson(aiSubmissionPath(),{uncertain:true,requestId:aiDraft.id});}
+    catch {return {ok:false,message:'无法保存防重复提交记录，未发送创建请求。'};}
+    const result=await queueDidaOperation(()=>taskWriter.create(aiDraft.id,value.task,aiDraft.projects,aiDraft.timeZone));
+    if(result.code!=='uncertain'){
+      try {await writeProtectedJson(aiSubmissionPath(),{uncertain:false});}
+      catch {result.warning=[result.warning,'结果已返回，但防重复记录未能清理；请核对后解除提示。'].filter(Boolean).join(' ');}
+    }
+    if(result.ok){
+      aiSession.lastCreated={task:assistant.validateDraft(value.task,aiDraft.projects),projects:aiDraft.projects,scene:aiDraft.scene,timeZone:aiDraft.timeZone,dateCheck:result.dateCheck};
+      aiDraft=null;aiSession.preview=null;didaRevision++;
+      aiSession.messages.push({role:'assistant',content:'上一项已添加到滴答，不要重复创建；本轮不支持修改已创建任务。'});
+      aiSession.messages=aiSession.messages.slice(-12);
+      try {const dashboard=await getDidaDashboard();result.dashboard=dashboard;if(!['live','partial'].includes(dashboard?.source)||dashboard.failedProjectIds?.includes(result.projectId))result.warning=[result.warning,'任务已创建，但目标清单刷新未成功；请稍后刷新，不要重复创建。'].filter(Boolean).join(' ');}
+      catch {result.warning=[result.warning,'任务已创建，但刷新失败；请稍后刷新，不要重复创建。'].filter(Boolean).join(' ');}
+      aiSession.lastCreated.warning=result.warning||'';
+    }
+    return result;
+  } finally {aiCreating=false;}
+}
+function aiUpdatePreview(value) {
+  if(aiCreating||!aiDraft||value?.id!==aiDraft.id||value?.revision!==aiDraft.revision+1)return false;
+  // Bounded incomplete edits are kept for handoff; generation/submission validate them.
+  const source=value.task;
+  if(!source||typeof source!=='object')return false;
+  const task={};for(const key of ['title','projectId','content','date','time','dateKind'])task[key]=typeof source[key]==='string'?source[key].slice(0,key==='content'?4000:200):'';
+  task.isAllDay=source.isAllDay===true;aiDraft.revision=value.revision;aiSession.preview={...aiDraft,task};return true;
+}
 const taskCompletion = createDidaCompletion({ getCredential: readDidaCredential, getDashboard: () => latestDidaDashboard, fetch: (...args) => fetch(...args), apiUrl: DIDA_API_URL });
+const checkItemCompletion=createCheckItemCompletion({getCredential:readDidaCredential,getDashboard:()=>latestDidaDashboard,fetch:(...args)=>fetch(...args),apiUrl:DIDA_API_URL});
 function queueDidaOperation(operation) {
   const result = didaOperationTail.then(operation);
   didaOperationTail = result.catch(() => {});
@@ -255,7 +378,9 @@ function writeConfig(config) {
   configWriteQueue = pending.catch(() => {});
   return pending;
 }
-async function writeConfigNow(config) {
+async function writeConfigNow(config, nextPomodoroSettings) {
+  // Layout/music/task snapshots cannot overwrite independently committed times.
+  config.pomodoroSettings={...(nextPomodoroSettings||pomodoroSettings)};
   if (!isConfigShape(config)) throw new Error('个人首页配置格式无效。');
   if (containsForbiddenReference(config) || await hasUnsafeConfiguredPath(config)) throw new Error('配置包含受保护的数据区域或链接路径，已拒绝保存。');
   const destination = configPath();
@@ -264,6 +389,15 @@ async function writeConfigNow(config) {
   await fs.writeFile(temporary, JSON.stringify(config, null, 2), 'utf8');
   await fs.rename(temporary, destination);
   return true;
+}
+
+async function savePomodoroSettings(value){
+  const next=pomodoro.validateSettings(value);
+  if(pomodoroSettingsBusy||['running','paused'].includes(pomodoroTimer.snapshot().status))return {ok:false,message:'请先重置当前计时，再修改时长。'};
+  pomodoroSettingsBusy=true;
+  const pending=configWriteQueue.then(async()=>{const loaded=await readConfig();if(!loaded.config)throw new Error('尚未加载有效首页配置。');await writeConfigNow(loaded.config,next);pomodoroSettings=next;pomodoroTimer.configure(next);publishPomodoro();return {ok:true,state:pomodoroTimer.snapshot()};});
+  configWriteQueue=pending.catch(()=>{});
+  try{return await pending;}finally{pomodoroSettingsBusy=false;}
 }
 
 function base64url(value) {
@@ -516,13 +650,20 @@ async function disconnectDida() {
   return { ok: true };
 }
 
-function completeDidaTask(projectId, taskId, expectedOccurrence) {
-  const key = JSON.stringify([projectId, taskId]);
+function completeDidaTask(projectId, taskId, expectedOccurrence, itemId=null, expectedItem=null) {
+  const key = JSON.stringify([projectId, taskId,itemId]);
   if (!taskCompletionFlights.has(key)) taskCompletionFlights.set(key, queueDidaOperation(async () => {
     if (didaAuthorization) return { ok: false, code: 'authorizing', message: '请先完成浏览器授权。' };
-    const result = await taskCompletion.complete(projectId, taskId, expectedOccurrence);
+    const result = itemId===null?await taskCompletion.complete(projectId, taskId, expectedOccurrence):await checkItemCompletion.complete(projectId,taskId,itemId,expectedOccurrence,expectedItem);
     if (!result.ok) return result;
     didaRevision++;
+    if(itemId!==null){
+      const task=sanitizeDidaTask(result.task,projectId);
+      const patch=dashboard=>({...dashboard,tasks:(dashboard?.tasks||[]).map(value=>value.id===taskId&&value.projectId===projectId?task:value),revision:didaRevision});
+      latestDidaDashboard=patch(latestDidaDashboard);
+      let warning='';try{const cached=await readProtectedJson(didaCachePath());if(cached)await writeProtectedJson(didaCachePath(),patch(cached));}catch{warning='小项已确认完成，但离线缓存未更新，请联网刷新。';}
+      return {ok:true,alreadyCompleted:result.alreadyCompleted===true,dashboard:latestDidaDashboard,warning};
+    }
     latestDidaDashboard = { ...taskCompletion.reconcile(latestDidaDashboard), revision: didaRevision };
     let warning = '';
     try {
@@ -588,6 +729,9 @@ async function requestUiTransition(action) {
 }
 
 async function performTransition(action) {
+  if(pomodoroSettingsBusy)return {ok:false,error:'番茄钟设置正在保存或恢复，请稍候再切换窗口或退出。'};
+  if(aiCreating)return {ok:false,error:'任务正在创建，请等待结果后再切换窗口或退出。'};
+  if(aiController)aiController.abort();
   if (action === 'enter-desktop') return enterDesktopTrial();
   if (action === 'return-home') {
     const result=await exitDesktopTrial(true);
@@ -1075,10 +1219,55 @@ app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     requestCalendarCheck(mainWindow);
     requestCalendarCheck(trialWindow);
+    pomodoroTimer.snapshot(true);publishPomodoro();
   });
   ipcMain.handle('config:load', readConfig);
+  const localAssistant = handler => async(event,...args) => {
+    const win=BrowserWindow.fromWebContents(event.sender);
+    if(!win||(win!==mainWindow&&win!==trialWindow))return {ok:false,message:'此窗口无权限。'};
+    try{return await handler(...args);}catch{return {ok:false,message:'操作失败，未确认成功，请重试或核对结果。'};}
+  };
+  ipcMain.handle('codex-quota:read',localAssistant(async force=>({...await quotaService.read(force===true),build:BUILD_ID})));
+  pomodoroSettings=pomodoro.normalizeSettings((await readConfig()).config?.pomodoroSettings);
+  pomodoroTimer.configure(pomodoroSettings);
+  pomodoroInterval=setInterval(()=>pomodoroTimer.snapshot(),1000);
+  ipcMain.handle('pomodoro:state',localAssistant(()=>pomodoroTimer.snapshot()));
+  ipcMain.handle('pomodoro:command',localAssistant(action=>{if(pomodoroSettingsBusy)return {ok:false,message:'正在保存时长，请稍候。'};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};}));
+  ipcMain.handle('pomodoro:settings',localAssistant(async value=>{try{return await savePomodoroSettings(value);}catch(error){return {ok:false,message:error.message==='专注需为1～120分钟，休息需为1～30分钟的整数。'?error.message:'时长保存失败，原设置已保留。'};}}));
+  ipcMain.handle('assistant:status',localAssistant(aiStatus));
+  ipcMain.handle('assistant:settings',localAssistant(aiSaveSettings));
+  ipcMain.handle('assistant:generate',localAssistant(aiGenerate));
+  ipcMain.handle('assistant:test',localAssistant(async()=>{
+    if(aiController||aiCreating)return {ok:false,message:'请等当前请求结束。'};
+    const controller=new AbortController();aiController=controller;
+    try{const saved=await readProtectedJson(aiCredentialPath());return await assistant.generate({key:saved?.key,model:saved?.model||assistant.MODELS[0],input:'仅做连接测试，请回复连接成功，不生成任务。',scene:'连接测试',projects:[],signal:controller.signal});}
+    finally {if(aiController===controller)aiController=null;}
+  }));
+  ipcMain.handle('assistant:cancel',localAssistant(()=>{aiController?.abort();return {ok:true};}));
+  ipcMain.handle('assistant:create',localAssistant(aiCreate));
+  ipcMain.handle('assistant:session',localAssistant(async()=>({...aiSession,uncertain:(await aiSubmissionState()).uncertain})));
+  ipcMain.on('assistant:input',(event,value)=>{
+    const win=BrowserWindow.fromWebContents(event.sender);
+    if((win===mainWindow||win===trialWindow)&&typeof value==='string')aiSession.input=value.slice(0,2000);
+  });
+  ipcMain.on('assistant:preview',(event,value)=>{
+    const win=BrowserWindow.fromWebContents(event.sender);
+    if(win===mainWindow||win===trialWindow)aiUpdatePreview(value);
+  });
+  ipcMain.handle('assistant:clear',localAssistant(()=>{
+    if(aiCreating||aiController)return {ok:false,message:'请先等待请求完成或取消生成。'};
+    // Keep the last-created guard even when visible history is cleared.
+    aiSession={messages:[],input:'',preview:null,lastCreated:aiSession.lastCreated};aiDraft=null;return {ok:true};
+  }));
+  ipcMain.handle('assistant:resolve',localAssistant(async()=>{
+    if(aiCreating)return {ok:false,message:'仍在提交，请稍候。'};
+    // Explicit user acknowledgement, never automatic retry or guessed duplicate match.
+    await writeProtectedJson(aiSubmissionPath(),{uncertain:false});aiDraft=null;aiSession.preview=null;
+    return {ok:true};
+  }));
   ipcMain.handle('config:save', (_event, config) => writeConfig(config));
   ipcMain.handle('config:backup', async (_event, config) => {
+    config={...config,pomodoroSettings:{...pomodoroSettings}};
     if (!isConfigShape(config) || containsForbiddenReference(config) || await hasUnsafeConfiguredPath(config)) return { canceled: false, error: '当前配置格式无效或包含受保护的数据区域，未备份。' };
     const { canceled, filePath } = await dialog.showSaveDialog(dialogParentWindow(), {
       title: '备份个人首页配置',
@@ -1086,23 +1275,31 @@ app.whenReady().then(async () => {
       filters: [{ name: 'JSON 文件', extensions: ['json'] }]
     });
     if (canceled || !filePath) return { canceled: true };
+    if(isForbiddenPath(filePath)||await containsSymlinkSegment(filePath))return {canceled:false,error:'备份路径属于受保护区域或链接路径，已拒绝访问。'};
     await fs.writeFile(filePath, JSON.stringify(config, null, 2), 'utf8');
     return { canceled: false };
   });
   ipcMain.handle('config:restore', async () => {
+    if(pomodoroSettingsBusy||['running','paused'].includes(pomodoroTimer.snapshot().status))return {canceled:false,error:'请先重置番茄钟，再恢复配置。'};
+    pomodoroSettingsBusy=true;
+    try{
     const { canceled, filePaths } = await dialog.showOpenDialog(dialogParentWindow(), {
       title: '恢复个人首页配置',
       properties: ['openFile'],
       filters: [{ name: 'JSON 文件', extensions: ['json'] }]
     });
     if (canceled || !filePaths[0]) return { canceled: true };
+    if(isForbiddenPath(filePaths[0])||await containsSymlinkSegment(filePaths[0]))return {canceled:false,error:'恢复路径属于受保护区域或链接路径，已拒绝访问。'};
     try {
       const config = JSON.parse(await fs.readFile(filePaths[0], 'utf8'));
       if (!isConfigShape(config) || containsForbiddenReference(config) || await hasUnsafeConfiguredPath(config)) throw new Error('Invalid config');
+      const next=pomodoro.normalizeSettings(config.pomodoroSettings);
+      const pending=configWriteQueue.then(async()=>{await writeConfigNow(config,next);pomodoroSettings=next;pomodoroTimer.configure(next);publishPomodoro();});configWriteQueue=pending.catch(()=>{});await pending;
       return { canceled: false, config };
     } catch {
-      return { canceled: false, error: '所选文件不是可用的个人首页配置。' };
+      return { canceled: false, error: '配置恢复未成功（文件无效或写入失败）；原配置和番茄钟时长已保留。' };
     }
+    }finally{pomodoroSettingsBusy=false;}
   });
   ipcMain.handle('entry:choose-local', (_event, kind) => chooseLocalEntry(kind));
   ipcMain.handle('entry:validate', (_event, entry) => validateEntry(entry));
@@ -1127,6 +1324,12 @@ app.whenReady().then(async () => {
     if (!senderWindow || (senderWindow !== mainWindow && senderWindow !== trialWindow)) return { ok: false, code: 'sender', message: '此窗口不能完成任务。' };
     return completeDidaTask(projectId, taskId, expectedOccurrence);
   });
+  ipcMain.handle('dida:complete-item',(event,projectId,taskId,itemId,occurrence,item)=>{
+    const senderWindow=BrowserWindow.fromWebContents(event.sender);
+    if(!senderWindow||(senderWindow!==mainWindow&&senderWindow!==trialWindow))return {ok:false,code:'sender',message:'此窗口不能完成小项。'};
+    if(typeof itemId!=='string')return {ok:false,code:'invalid',message:'小项标识无效。'};
+    return completeDidaTask(projectId,taskId,occurrence,itemId,item);
+  });
   ipcMain.handle('dida:disconnect', disconnectDida);
   ipcMain.handle('app:set-hotkey', (_event, accelerator) => setHotkey(accelerator));
   ipcMain.handle('app:hide', () => mainWindow?.hide());
@@ -1148,8 +1351,9 @@ app.whenReady().then(async () => {
   } else createWindow('focus');
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {quotaService.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
 app.on('before-quit',(event)=>{
+  if(pomodoroSettingsBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'番茄钟设置正在保存或恢复，请完成后再退出。');return;}
   if (loginStartupLaunch && !startupQuitCleanupInFlight && !startupQuitCleanupDone) {
     event.preventDefault();
     startupQuitCleanupInFlight = true;

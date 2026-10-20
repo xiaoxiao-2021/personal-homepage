@@ -1,0 +1,41 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const core=require('../task-assistant.cjs');
+const checks=[];const check=(value,name)=>{assert(value,name);checks.push(name);};
+const projects=[{id:'research',name:'合成科研'},{id:'life',name:'合成生活'}];
+const task={title:'手动改好的标题',projectId:'research',content:'手动备注',date:'2026-10-07',time:'15:00',dateKind:'due',isAllDay:false};
+const args={key:'synthetic-key',model:core.MODELS[0],input:'改成今天，其他不变',scene:'research',projects,activeDraft:task,now:new Date(2026,9,8,0,1)};
+let calls=0,body;
+const response=result=>async(_url,options)=>{calls++;body=JSON.parse(options.body);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(result)}}]})};};
+(async()=>{
+  const corrected=await core.generate({...args,fetch:response({})});
+  check(corrected.ok&&corrected.task.date==='2026-10-08'&&calls===0,'today correction is local, uses fresh local date, no paid request');
+  check(JSON.stringify({...corrected.task,date:task.date})===JSON.stringify(task),'simple date correction preserves manual title/list/notes/time');
+  for(const [now,word,expected] of [[new Date(2026,8,30,23,59),'明天','2026-10-01'],[new Date(2026,11,31),'明天','2027-01-01'],[new Date(2028,1,28),'明天','2028-02-29'],[new Date(2028,1,29),'明天','2028-03-01'],[new Date(2026,9,8,0,1),'今天','2026-10-08'],[new Date(2026,9,8),'后天','2026-10-10']]){
+    check(core.relativeDay(word,now)===expected,`local date ${expected} (${word})`);
+  }
+  for(const text of ['不是今天，是明天','下周一','今天或明天','不要明天','昨天','大后天','标题“明天会更好”，没有日期','今天想把日期设为2026-10-10'])check(core.relativeDay(text,args.now)==='',`does not guess ambiguous/negated date: ${text}`);
+  check((await core.generate({...args,input:'改到16:30，其他不变'})).task.time==='16:30','local time correction');
+  check((await core.generate({...args,input:'标题改成“核对文献”，其他不变'})).task.title==='核对文献','local title correction');
+  const allDay=await core.generate({...args,input:'改成全天，其他不变'});check(allDay.task.isAllDay&&allDay.task.time==='','all-day consistency');
+  check(!(await core.generate({...args,input:'日期改成2026-02-30'})).ok,'invalid correction rejected with old draft untouched');
+  const guard=await core.generate({...args,activeDraft:null,lastCreated:task,input:'日期错了，重新建',fetch:response({})});
+  check(guard.kind==='reply'&&calls===0,'created task correction is clarified, not duplicated');
+  for(const input of ['不要创建一项新任务，日期错了','新任务的日期不对，改成今天'])check((await core.generate({...args,activeDraft:null,lastCreated:task,input,fetch:response({})})).kind==='reply','negated/ambiguous new-task wording never bypasses created-task guard');
+  const newTask=await core.generate({...args,activeDraft:null,lastCreated:task,input:'另外创建一项新任务，今天整理文献',fetch:response({kind:'draft',message:'核对',task})});
+  check(newTask.ok&&newTask.task.date==='2026-10-08','explicit new task permitted, wrong model date cross-checked');
+  const fallback=await core.generate({...args,input:'把清单改成生活，其他不变',fetch:response({kind:'draft',message:'核对',task:{...task,title:'错误覆盖',projectId:'life',date:'2020-01-01',content:'错误覆盖'}})});
+  check(fallback.task.projectId==='life'&&fallback.task.title===task.title&&fallback.task.date===task.date&&fallback.task.content===task.content,'only requested fields change in model-assisted correction');
+  check(body.messages[0].content.includes('activeDraft')&&body.messages[0].content.includes('手动备注'),'active draft is explicit authoritative context');
+  const regenerated=await core.generate({...args,input:'重新生成便签',fetch:response({kind:'draft',message:'核对',task:{...task,title:'错误覆盖',date:'2020-01-01'}})});
+  check(JSON.stringify(regenerated.task)===JSON.stringify(task),'regeneration preserves current manual fields even without other-fields-unchanged wording');
+  check((await core.generate({...args,input:'新建',fetch:response({})})).kind==='reply','ambiguous new versus correction asks for clarification');
+  const missing=await core.generate({...args,input:'重新生成便签',fetch:response({kind:'reply',message:'正确草稿如下，请核对后确认。'})});
+  check(!missing.ok&&missing.code==='no-draft'&&missing.retryable,'false draft claim gets explicit manual retry, never fake preview');
+  const reply=await core.generate({...args,input:'日期含义是什么',fetch:response({kind:'reply',message:'请选择开始或到期。'})});check(reply.ok&&reply.kind==='reply','clarification remains a reply');
+  check(!(await core.generate({...args,input:'生成',fetch:response({kind:'draft',message:'核对',task:{title:'缺字段'}})})).ok,'missing required fields rejected');
+  const abort=new AbortController();abort.abort();check((await core.generate({...args,signal:abort.signal})).code==='canceled','cancellation checked before local correction');
+  check(core.taskPayload({...task,date:'2026-10-08'},'Asia/Shanghai').dueDate==='2026-10-08T15:00:00+0800','submitted payload retains local offset and exact clock time');
+  const out=path.resolve(__dirname,'../test-results/task-assistant-corrections');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'logic-report.json'),JSON.stringify({checks,calls,scope:'Synthetic time/transport only, no network or real tasks'},null,2));
+  console.log(`${checks.length} correction checks passed; synthetic transport only.`);
+})().catch(error=>{console.error(error);process.exitCode=1;});

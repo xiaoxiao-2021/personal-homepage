@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const {dateKey,taskDate,taskDay,compareTasks,dayLabel}=require('../src/task-view.js');
 const today='2026-09-13';
 assert.equal(dateKey('2026-09-14',true),'2026-09-14');
-assert.equal(dateKey('2026-09-14T00:00:00Z',true),'2026-09-14','all-day timestamps keep their source calendar date');
+assert.equal(dateKey('2026-09-14T00:00:00Z',true),'2026-09-14','all-day instants use task timezone, not the raw date prefix');
 assert.equal(dateKey('2026-02-30',true),'invalid');
 assert.equal(dateKey('2026-09-13bad',true),'invalid');
 assert.equal(dateKey('invalid',false),'invalid');

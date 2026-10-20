@@ -1,0 +1,9 @@
+#moduleStack > [data-module="pomodoro"] { min-height:0; }
+#moduleStack [data-module="pomodoro"] .module-title { font-size:14px; }
+#moduleStack [data-module="pomodoro"] .btn { min-height:30px; padding:4px 9px; }
+.pomo-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; margin-top:6px; }
+#pomoTime { font-size:25px; line-height:1.25; font-weight:650; font-variant-numeric:tabular-nums; color:var(--ink); }
+#pomoStart { margin-left:auto; background:var(--tool-soft); color:var(--tool-accent); }
+#pomoStatus { margin-top:4px; overflow-wrap:anywhere; }
+#pomoDialog { width:min(440px,calc(100vw - 24px)); max-height:calc(100vh - 24px); overflow:auto; }
+#pomoDialog input { box-sizing:border-box; width:100%; }
