@@ -6,6 +6,10 @@ const { pathToFileURL } = require('node:url');
 const { promisify } = require('node:util');
 const crypto = require('node:crypto');
 const http = require('node:http');
+const {configureRuntime}=require('./portable-runtime.cjs');
+const runtime=configureRuntime(app,require('./package.json'));
+// Only the explicit packaged diagnostic mode blocks services; normal app behaviour is unchanged.
+if(runtime.isolatedTest)globalThis.fetch=async()=>{throw new Error('隔离打包测试禁止外部服务请求。');};
 const { validateEntry, launchValidatedEntry } = require('./local-entry.cjs');
 const { createEntryIconResolver } = require('./entry-icon.cjs');
 const { hasWriteScope, createDidaCompletion } = require('./dida-completion.cjs');
@@ -13,7 +17,7 @@ const {createCheckItemCompletion}=require('./dida-check-items.cjs');
 const assistant = require('./task-assistant.cjs');
 const pomodoro=require('./pomodoro.cjs');
 const codexQuota=require('./codex-quota.cjs');
-const quotaService=codexQuota.createService({find:()=>codexQuota.locateExecutable({
+const quotaService=codexQuota.createService({...(runtime.isolatedTest?{reader:async()=>{throw Object.assign(new Error('isolated'),{quotaCode:'missing'});}}:{}),find:()=>codexQuota.locateExecutable({
   appData:app.getPath('appData'),
   localAppData:process.env.LOCALAPPDATA||path.join(path.dirname(app.getPath('appData')),'Local')
 })});
@@ -25,13 +29,14 @@ const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.20.2';
+const BUILD_ID = '2026.10.22.1';
 const processStartedAt = process.hrtime.bigint();
-const loginStartupLaunch = process.argv.includes(STARTUP_ARGUMENT);
+const loginStartupLaunch = !runtime.preview&&process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
   app,
   executablePath: process.execPath,
   appPath: app.getAppPath(),
+  packaged: app.isPackaged,
   name: STARTUP_NAME
 });
 
@@ -333,6 +338,8 @@ function runtimeAbout() {
   return {
     version: app.getVersion(),
     buildId: BUILD_ID,
+    distribution: runtime.preview?'免安装测试版（独立数据，自启动禁写）':'源码版',
+    packaged: app.isPackaged,
     appPath: app.getAppPath(),
     workingDirectory: process.cwd(),
     executablePath: process.execPath,
@@ -928,7 +935,7 @@ function createWindow(showMode = 'focus') {
     minHeight: 580,
     show: false,
     backgroundColor: '#e4ddd0',
-    title: '个人首页',
+    title: runtime.preview?'个人首页 · 免安装测试版':'个人首页',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -961,7 +968,7 @@ function createTray() {
     '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="9" fill="#547265"/><path d="M8 16.5 16 9l8 7.5v7a2 2 0 0 1-2 2h-4v-6h-4v6h-4a2 2 0 0 1-2-2z" fill="#fffdf9"/></svg>'
   ).toString('base64')}`);
   tray = new Tray(icon);
-  tray.setToolTip('个人首页');
+  tray.setToolTip(runtime.preview?'个人首页 · 免安装测试版':'个人首页');
   updateTrayMenu();
   tray.on('click', showHomepage);
 }
@@ -1007,10 +1014,12 @@ async function launchAtLogin() {
 }
 
 async function getStartupSettings() {
+  if(runtime.preview)return {supported:false,registered:false,enabled:false,state:'preview',message:'免安装测试版使用独立数据；暂不读取或改写原版登录启动项。',preferences:await readStartupPreferences()};
   return { ...await startupAdapter.read(), preferences: await readStartupPreferences() };
 }
 
 async function applyStartupSettings(value = {}) {
+  if(runtime.preview)return {...await getStartupSettings(),ok:false,error:'免安装测试版暂不写入登录启动项；原版设置未改变。'};
   const preferences = await writeStartupPreferences(value);
   const before = await startupAdapter.read();
   const change = decideLoginItemChange(before, Boolean(value.enabled));
@@ -1028,6 +1037,7 @@ async function applyStartupSettings(value = {}) {
 }
 
 function setHotkey(accelerator) {
+  if(runtime.isolatedTest)return {ok:true,accelerator:''};
   const normalized = String(accelerator || '').trim();
   const previous = registeredHotkey;
   globalShortcut.unregisterAll();
@@ -1187,7 +1197,7 @@ async function copyConfiguredFolderPath(entryId) {
 
 const resolveEntryIcon = createEntryIconResolver({ app, getEntryById: getConfiguredEntryById, validateEntry });
 
-app.setAppUserModelId('com.personalhome.desktop');
+app.setAppUserModelId(runtime.appId);
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', (_event, commandLine) => {
   if (commandLine.includes(STARTUP_ARGUMENT)) return;

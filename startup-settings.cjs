@@ -13,9 +13,9 @@ function normalizeStartupPreferences(value = {}) {
   };
 }
 
-function startupArguments(appPath) {
+function startupArguments(appPath, packaged = false) {
   // Electron 39.8.10 quotes arguments in FormatCommandLineString itself.
-  return ['--disable-gpu', appPath, STARTUP_ARGUMENT];
+  return ['--disable-gpu', ...(packaged?[]:[appPath]), STARTUP_ARGUMENT];
 }
 
 
@@ -25,9 +25,9 @@ function decideLoginItemChange(status, desiredEnabled) {
   return Boolean(desiredEnabled) === Boolean(status?.registered) ? 'unchanged' : 'change';
 }
 
-function createLoginItemAdapter({ app, platform = process.platform, executablePath, appPath, name = STARTUP_NAME, readRecord = readOwnedStartupRecord }) {
-  const args = startupArguments(appPath);
-  const expected = { name, path: executablePath, appPath, args, platform };
+function createLoginItemAdapter({ app, platform = process.platform, executablePath, appPath, packaged = false, name = STARTUP_NAME, readRecord = readOwnedStartupRecord }) {
+  const args = startupArguments(appPath, packaged);
+  const expected = { name, path: executablePath, appPath, args, platform, packaged };
 
   async function read() {
     if (platform !== 'win32') return { supported: false, registered: false, enabled: false, disabledByWindows: false, name, path: executablePath };

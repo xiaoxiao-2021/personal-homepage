@@ -38,8 +38,9 @@ function inspectStartupRecord(record, expected) {
   if (!record || typeof record.registered!=='boolean') return unknown;
   if (!record.registered) return { ...base, state:'absent', registered:false, enabled:false, commandMismatch:false };
   let argv;try { argv=parseWindowsCommand(record.command); } catch { argv=[]; }
-  const matched=argv.length===4 && samePath(argv[0],expected.path) && argv[1]==='--disable-gpu'
-    && samePath(argv[2],expected.appPath) && argv[3]==='--personal-homepage-login';
+  const matched=samePath(argv[0],expected.path)&&argv[1]==='--disable-gpu'&&(expected.packaged
+    ?argv.length===3&&argv[2]==='--personal-homepage-login'
+    :argv.length===4&&samePath(argv[2],expected.appPath)&&argv[3]==='--personal-homepage-login');
   if (!matched) return { ...base, state:'mismatch', registered:true, enabled:false, commandMismatch:true };
   const approval=record.approval;
   if (approval!==null && (!Array.isArray(approval) || approval.length<4 || ![0,2,3,6,7].includes(approval[0]))) return { ...unknown, registered:true };

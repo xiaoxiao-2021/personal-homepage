@@ -2,6 +2,7 @@
 /**
 !/.gitignore
 !/README.md
+!/PORTABLE.md
 !/LICENSE
 !/package.json
 !/package-lock.json
@@ -12,6 +13,8 @@
 !/src/**
 !/tests/
 !/tests/**
+!/scripts/
+!/scripts/build-portable.cjs
 
 # Runtime data must not be published, even if placed under source directories.
 **/node_modules/
