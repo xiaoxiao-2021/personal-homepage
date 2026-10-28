@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('homeApi', {
   completeDidaCheckItem:(projectId,taskId,itemId,occurrence,item)=>ipcRenderer.invoke('test:dida-complete-item',projectId,taskId,itemId,occurrence,item),
   connectDida: (write=false) => completionTest ? ipcRenderer.invoke('test:dida-connect',write) : Promise.resolve({ started: false }),
   disconnectDida: async () => ({}),
-  setHotkey: async () => ({ ok: true }),
+  setHotkey: value => new URLSearchParams(window.location.search).has('settingsTest') ? ipcRenderer.invoke('test:hotkey',value) : Promise.resolve({ok:true}),
   startupSettings: async () => ({ supported: true, state: 'absent', registered: false, enabled: false, preferences: { mode: 'window', delayMs: 0 } }),
   saveStartupSettings: async (settings) => settings.mode === 'desktop'
     ? ({ supported:true, ok: false, state: 'enabled', registered: true, enabled: true, error: '合成写入失败；系统仍保持已开启。', preferences: settings })

@@ -12,6 +12,7 @@
   function relative(timestamp){const minutes=Math.ceil((timestamp-Date.now())/60000);if(minutes<=0)return '已到刷新时间，待确认';const d=Math.floor(minutes/1440),h=Math.floor(minutes%1440/60),m=minutes%60;return `约${d?d+'天 ':''}${h?h+'小时 ':''}${m||(!d&&!h)?m+'分钟':''}后刷新`;}
   function render(){
     const collapsed=state.tools?.codexQuotaCollapsed!==false;
+    panel.classList.toggle('is-collapsed',collapsed);
     get('quotaDetails').hidden=collapsed;get('quotaCollapse').textContent=collapsed?'展开':'收起';get('quotaCollapse').setAttribute('aria-expanded',String(!collapsed));
     get('quotaCollapse').disabled=layoutSaveInFlight;button.disabled=busy;
     button.textContent=busy?'读取中…':snapshot?.status==='missing'?'重新检测':'刷新';panel.setAttribute('aria-busy',String(busy));

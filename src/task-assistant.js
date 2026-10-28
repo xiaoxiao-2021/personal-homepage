@@ -29,7 +29,7 @@
     const gap=parseFloat(getComputedStyle(column).gap)||14;
     const height=node=>node.getBoundingClientRect().height;
     const taskMin=Math.max(280,height(taskCard.querySelector('.head'))+height($('.task-view-controls'))+100);
-    const assistantMin=Math.max(230,height(assistantCard.querySelector('.head'))+height($('.ai-composer'))+height(status)+64);
+    const assistantMin=Math.max(210,height(assistantCard.querySelector('.head'))+height($('.ai-composer'))+height(status)+44);
     const active=state.assistantLayout?.fitWindow!==false&&!editing&&innerWidth>1100&&!column.hidden&&available>=taskMin+assistantMin+gap;
     column.classList.toggle('fit-window',active);
     const rail=$('#moduleCard');
@@ -42,7 +42,7 @@
       column.style.setProperty('--left-height',`${available}px`);
       const both=!taskCard.hidden&&!assistantCard.hidden;
       const total=available-(both?gap:0);
-      const weight=({compact:330,medium:390,tall:490})[state.assistantLayout?.height]||390;
+      const weight=({compact:240,medium:280,tall:360})[state.assistantLayout?.height]||280;
       const taskWeight=({compact:350,medium:470,tall:620})[current().layout.heights.tasks]||470;
       const taskHeight=both?Math.max(taskMin,Math.min(total-assistantMin,Math.round(total*taskWeight/(taskWeight+weight)))):total;
       column.style.setProperty('--fit-task-height',`${taskHeight}px`);
@@ -58,7 +58,7 @@
   function renderLayout(){
     const setting=state.assistantLayout||{visible:true,height:'medium'};
     $('#assistantCard').hidden=setting.visible===false;
-    $('#assistantCard').style.setProperty('--assistant-height',`${({compact:330,medium:390,tall:490})[setting.height]||390}px`);
+    $('#assistantCard').style.setProperty('--assistant-height',`${({compact:240,medium:280,tall:360})[setting.height]||280}px`);
     const task=$('#taskColumn > .task-card');
     $('#taskColumn').hidden=task.hidden&&setting.visible===false;
     $('#aiLayoutVisible').checked=setting.visible!==false;
@@ -205,7 +205,7 @@
     try {const value=await api.assistantStatus();$('#aiModel').value=value.model;$('#aiSettingsStatus').textContent=value.configured?'已保存密钥（不返回明文）。替换可输入新密钥。':'尚未配置，请输入自己的 API Key。';}catch{$('#aiSettingsStatus').textContent='当前入口无法读取 AI 设置。';}
   }
   $('#aiSettings').onclick=openSettings;
-  const settingsButton=make('button','btn','配置 DeepSeek 任务助手');settingsButton.type='button';settingsButton.onclick=openSettings;$('#settingsDialog .modal').insertBefore(settingsButton,$('#settingsDialog .modal-actions'));
+  const settingsButton=make('button','btn','配置 DeepSeek 任务助手');settingsButton.type='button';settingsButton.onclick=openSettings;$('#aiSettingsSlot').append(settingsButton);
   async function settingsAction(work){if(settingsBusy)return;settingsBusy=true;const buttons=[...$('#aiSettingsForm').querySelectorAll('button,input,select')];buttons.forEach(node=>node.disabled=true);try{await work();}catch{$('#aiSettingsStatus').textContent='操作失败，未确认保存。';}finally{settingsBusy=false;buttons.forEach(node=>node.disabled=false);$('#aiKey').value='';}}
   $('#aiSettingsForm').onsubmit=event=>{event.preventDefault();void settingsAction(async()=>{const result=await api.assistantSettings({key:$('#aiKey').value,model:$('#aiModel').value});$('#aiSettingsStatus').textContent=result.ok?'AI 设置已单独保存；没有发送聊天请求。':result.message;});};
   $('#aiRemoveKey').onclick=()=>{if(window.confirm('只删除本机 AI 密钥；滴答授权、布局和歌单不受影响。'))void settingsAction(async()=>{const result=await api.assistantSettings({remove:true});$('#aiSettingsStatus').textContent=result.ok?'AI 密钥已移除。':result.message;});};

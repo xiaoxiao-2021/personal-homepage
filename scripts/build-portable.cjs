@@ -3,7 +3,10 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),{execFile}=require('node:child_process'),{promisify}=require('node:util');
 const run=promisify(execFile),root=path.resolve(__dirname,'..'),releaseRoot=path.resolve(root,'../releases');
 const SOURCE_FILES=['main.cjs','preload.cjs','preload-trial.cjs','portable-runtime.cjs','startup-settings.cjs','startup-record.cjs','read-startup-record.ps1','desktop-bridge.ps1','local-entry.cjs','entry-icon.cjs','dida-completion.cjs','dida-check-items.cjs','task-assistant.cjs','pomodoro.cjs','codex-quota.cjs',
-  ...['index.html','desktop-trial.html','renderer.js','task-view.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css'].map(file=>'src/'+file)];
+  ...['index.html','desktop-trial.html','renderer.js','task-view.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css','daily-ui.css'].map(file=>'src/'+file)];
+// Keep English as Chromium's fallback on non-Chinese Windows installations.
+// These are runtime translations only; app data and user language settings are untouched.
+const RUNTIME_LOCALES=['en-US.pak','zh-CN.pak','zh-TW.pak'];
 const RUNTIME_FILES=['electron.exe','chrome_100_percent.pak','chrome_200_percent.pak','d3dcompiler_47.dll','dxcompiler.dll','dxil.dll','ffmpeg.dll','icudtl.dat','libEGL.dll','libGLESv2.dll','LICENSE','LICENSES.chromium.html','resources.pak','snapshot_blob.bin','v8_context_snapshot.bin','version','vk_swiftshader_icd.json','vk_swiftshader.dll','vulkan-1.dll'];
 async function assertOrdinary(target){
   const absolute=path.resolve(target),normalized=absolute.replace(/\//g,'\\').toLowerCase(),forbidden='d:\\k science\\r 软件资料';
@@ -32,7 +35,9 @@ async function buildPortable({outputName,archive=true}={}){
   const manifest=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8'));
   const mainSource=await fs.readFile(path.join(root,'main.cjs'),'utf8'),buildId=mainSource.match(/const BUILD_ID = '([\d.]+)'/)?.[1];
   if(!buildId)throw Error('Missing build identifier');
-  const name=outputName||`personal-homepage-${manifest.version}-${buildId}-win32-x64`;
+  // Chromium's file loader still rejects some Windows paths at 260 characters.
+  // Keep the extracted root short; the complete build ID remains in the manifest/about UI.
+  const name=outputName||`personal-homepage-${manifest.version}-win-x64`;
   if(!/^[a-zA-Z0-9._-]+$/.test(name)||name==='.'||name==='..')throw Error('Unsafe release name');
   await assertOrdinary(path.dirname(releaseRoot));await fs.mkdir(releaseRoot,{recursive:true});await assertOrdinary(releaseRoot);
   const destination=path.join(releaseRoot,name);await fs.mkdir(destination); // Refuse to overwrite any existing build.
@@ -42,14 +47,14 @@ async function buildPortable({outputName,archive=true}={}){
   for(const file of RUNTIME_FILES)await copyFile(path.join(runtimeRoot,file),path.join(destination,file==='electron.exe'?'个人首页.exe':file==='LICENSE'?'LICENSE.electron.txt':file));
   // Locales are runtime-only .pak files, not a recursively copied user directory.
   const localeRoot=path.join(runtimeRoot,'locales');await assertOrdinary(localeRoot);
-  for(const file of await fs.readdir(localeRoot)){if(!/^[a-zA-Z0-9_-]+\.pak$/.test(file))throw Error('Unexpected locale input');await copyFile(path.join(localeRoot,file),path.join(destination,'locales',file));}
+  for(const file of RUNTIME_LOCALES)await copyFile(path.join(localeRoot,file),path.join(destination,'locales',file));
   const appRoot=path.join(destination,'resources/app');
   for(const file of SOURCE_FILES){await assertOrdinary(path.join(root,file));checkSource(await fs.readFile(path.join(root,file),'utf8'),file);await copyFile(path.join(root,file),path.join(appRoot,file));}
   const packaged={name:'personal-homepage-portable-preview',productName:'个人首页 · 免安装测试版',version:manifest.version,description:manifest.description,main:'main.cjs',private:true,homepageDistribution:'portable-preview'};
   await fs.writeFile(path.join(appRoot,'package.json'),JSON.stringify(packaged,null,2)+'\n',{flag:'wx'});
   await copyFile(path.join(root,'PORTABLE.md'),path.join(destination,'使用说明.txt'));
   const files=await inventory(destination);
-  await fs.writeFile(path.join(destination,'portable-manifest.json'),JSON.stringify({version:manifest.version,buildId,electron:runtimeVersion,platform:'win32',arch:'x64',distribution:'portable-preview',files},null,2)+'\n',{flag:'wx'});
+  await fs.writeFile(path.join(destination,'portable-manifest.json'),JSON.stringify({version:manifest.version,buildId,electron:runtimeVersion,platform:'win32',arch:'x64',distribution:'portable-preview',runtimeLocales:RUNTIME_LOCALES,files},null,2)+'\n',{flag:'wx'});
   const result={directory:destination,files:files.length+1,version:manifest.version,buildId,electron:runtimeVersion};
   if(archive){
     const zip=destination+'.zip';try{await fs.lstat(zip);throw Error('Archive already exists');}catch(error){if(error.code!=='ENOENT')throw error;}
@@ -60,5 +65,5 @@ async function buildPortable({outputName,archive=true}={}){
   }
   return result;
 }
-module.exports={SOURCE_FILES,RUNTIME_FILES,checkSource,inventory,buildPortable};
+module.exports={SOURCE_FILES,RUNTIME_FILES,RUNTIME_LOCALES,checkSource,inventory,buildPortable};
 if(require.main===module)buildPortable({outputName:process.argv[2]}).then(result=>console.log(JSON.stringify(result,null,2))).catch(error=>{console.error(error.message);process.exitCode=1;});

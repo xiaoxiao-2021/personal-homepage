@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const {configureRuntime,PREVIEW_PROFILE}=require('../portable-runtime.cjs');
 const {startupArguments,createLoginItemAdapter}=require('../startup-settings.cjs');
 const {inspectStartupRecord}=require('../startup-record.cjs');
-const {SOURCE_FILES,RUNTIME_FILES,checkSource}=require('../scripts/build-portable.cjs');
+const {SOURCE_FILES,RUNTIME_FILES,RUNTIME_LOCALES,checkSource}=require('../scripts/build-portable.cjs');
 const output=path.resolve(__dirname,'../test-results/portable-build');fs.mkdirSync(output,{recursive:true});
 const checks=[],check=(value,label)=>{assert(value,label);checks.push(label);};
 function fakeApp(packaged){const writes=[];return {isPackaged:packaged,writes,getPath:()=>output,setPath:(key,value)=>writes.push([key,value]),setAppLogsPath:value=>writes.push(['logs',value])};}
@@ -32,6 +32,8 @@ const context=vm.createContext({runtime:{preview:true},readStartupPreferences:as
   check(!(await context.applyStartupSettings({enabled:true})).ok,'preview rejects startup writes before any preference or registry access');
   check(!SOURCE_FILES.some(file=>/test-results|node_modules|homepage-config|credential|\.bin$|README/.test(file)),'source package uses explicit code-only whitelist');
   check(!RUNTIME_FILES.includes('debug.log')&&!RUNTIME_FILES.includes('resources/default_app.asar'),'runtime logs and Electron default app excluded');
+  check(RUNTIME_LOCALES.includes('en-US.pak')&&RUNTIME_LOCALES.includes('zh-CN.pak')&&RUNTIME_LOCALES.includes('zh-TW.pak')&&RUNTIME_LOCALES.length===3,'runtime translations retain Chinese and English fallback');
+  for(const locale of RUNTIME_LOCALES)check(fs.statSync(path.resolve(__dirname,'../node_modules/electron/dist/locales',locale)).isFile(),'retained runtime translation exists: '+locale);
   for(const file of SOURCE_FILES)checkSource(fs.readFileSync(path.resolve(__dirname,'..',file),'utf8'),file);
   check(true,'allowlisted sources contain no checked private signatures');
   for(const candidate of ['sk-'+'A'.repeat(30),'-----BEGIN PRIVATE KEY-----'])assert.throws(()=>checkSource(candidate,'synthetic'));

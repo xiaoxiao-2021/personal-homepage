@@ -1,6 +1,6 @@
 {
   "name": "personal-homepage-desktop",
-  "version": "0.3.12",
+  "version": "0.3.15",
   "private": true,
   "description": "Windows personal homepage with a reversible desktop-layer trial",
   "main": "main.cjs",

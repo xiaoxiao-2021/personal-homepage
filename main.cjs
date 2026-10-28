@@ -29,7 +29,7 @@ const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.22.1';
+const BUILD_ID = '2026.10.28.1';
 const processStartedAt = process.hrtime.bigint();
 const loginStartupLaunch = !runtime.preview&&process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
