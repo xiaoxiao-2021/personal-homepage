@@ -11,6 +11,20 @@ assert.throws(()=>validateSettings({focus:1.5,break:5}));assert.throws(()=>valid
 assert.equal(createTimer().snapshot().status,'idle','new process does not resume');
 let sleepWall=0,sleepMono=0;const partial=createTimer({settings:{focus:1,break:1},now:()=>sleepWall,monotonic:()=>sleepMono});partial.command('start');sleepWall+=20000;
 assert.equal(partial.snapshot(true).remainingMs,40000);sleepWall+=1000;sleepMono+=1000;assert.equal(partial.snapshot().remainingMs,39000,'partial sleep rebases deadline and immediately keeps counting');
+// Focus association is local runtime state, independent from task completion.
+let focusNow=0;const linked=createTimer({settings:{focus:1,break:1},now:()=>focusNow,monotonic:()=>focusNow});
+const taskA={id:'a',projectId:'p',title:'合成任务 A'},taskB={id:'b',projectId:'p',title:'合成任务 B'};
+assert.equal(linked.focusTask(taskA).state.task.title,taskA.title);
+focusNow+=10000;const current=linked.snapshot();assert.equal(linked.focusTask(taskA).state.remainingMs,50000,'same task does not reset countdown');
+linked.command('pause');assert.equal(linked.focusTask(taskA).state.status,'running','same paused task resumes');
+const conflict=linked.focusTask(taskB);assert.equal(conflict.needsConfirm,true);assert.equal(linked.snapshot().task.id,'a');
+linked.command('pause');assert.equal(linked.focusTask(taskB,{replace:true,expectedRevision:conflict.state.revision}).needsConfirm,true,'stale replacement confirmation cannot replace changed timer');
+const revision=linked.snapshot().revision;assert.equal(linked.focusTask(taskB,{replace:true,expectedRevision:revision}).state.task.id,'b');
+const exposed=linked.snapshot();exposed.task.title='changed';assert.equal(linked.snapshot().task.title,taskB.title,'snapshot cannot mutate association');
+focusNow+=61000;assert.equal(linked.snapshot(true).status,'completed');assert.equal(linked.snapshot().task.id,'b');
+linked.command('start');assert.equal(linked.snapshot().phase,'break');assert.equal(linked.snapshot().task.id,'b');
+linked.command('reset');assert.equal(linked.snapshot().task,null);assert.equal(createTimer().snapshot().task,null,'new process does not restore task');
+assert.throws(()=>linked.focusTask({id:'../bad',projectId:'p',title:'bad'}));
 (async()=>{
   const output=path.resolve(__dirname,'../test-results/pomodoro');await fs.mkdir(output,{recursive:true});const destination=path.join(output,'isolated-config.json');
   const seed={version:1,library:{},scenes:{},tools:{order:['time','calendar','music']},music:{volume:.7},pomodoroSettings:{focus:25,break:5}};await fs.writeFile(destination,JSON.stringify(seed));

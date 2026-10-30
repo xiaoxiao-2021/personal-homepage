@@ -15,6 +15,7 @@ const { createEntryIconResolver } = require('./entry-icon.cjs');
 const { hasWriteScope, createDidaCompletion } = require('./dida-completion.cjs');
 const {createCheckItemCompletion}=require('./dida-check-items.cjs');
 const assistant = require('./task-assistant.cjs');
+const drafts = require('./assistant-drafts.cjs');
 const pomodoro=require('./pomodoro.cjs');
 const codexQuota=require('./codex-quota.cjs');
 const quotaService=codexQuota.createService({...(runtime.isolatedTest?{reader:async()=>{throw Object.assign(new Error('isolated'),{quotaCode:'missing'});}}:{}),find:()=>codexQuota.locateExecutable({
@@ -29,7 +30,7 @@ const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.28.1';
+const BUILD_ID = '2026.10.30.3';
 const processStartedAt = process.hrtime.bigint();
 const loginStartupLaunch = !runtime.preview&&process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
@@ -93,6 +94,44 @@ const aiSubmissionPath = () => path.join(app.getPath('userData'), 'assistant-sub
 let aiController = null, aiCreating = false, aiSettingsTail = Promise.resolve();
 let aiSession = { messages: [], input: '', preview: null, lastCreated: null };
 let aiDraft = null;
+let aiRecovery=null,aiRecoveryBusy=false,aiQuitFlushing=false,aiQuitFlushed=false;
+const draftStorage=drafts.createStore({fs,path,safeStorage,file:()=>path.join(app.getPath('userData'),'assistant-draft.bin'),onStatus:value=>{
+  for(const win of [mainWindow,trialWindow])if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('assistant:draft-storage',value);
+}});
+function saveDraft(){aiQuitFlushed=false;draftStorage.schedule(aiSession.preview);}
+async function aiSessionState(){return {...aiSession,recovery:aiRecovery,storage:draftStorage.status(),uncertain:(await aiSubmissionState()).uncertain};}
+async function aiRecover(value){
+  if(aiCreating||aiController||aiRecoveryBusy)return {ok:false,message:'请等待当前操作结束。'};
+  if(!aiRecovery)return {ok:false,message:'没有待处理的恢复便签。'};
+  aiRecoveryBusy=true;
+  try{
+    if(value?.action==='discard'){
+      await draftStorage.clear();aiRecovery=null;return {ok:true};
+    }
+    if(value?.action!=='restore'||!aiRecovery?.preview)return {ok:false,message:'没有可恢复的便签。'};
+    if((await aiSubmissionState()).uncertain)return {ok:false,message:'上次提交结果不确定，请先核对滴答；旧便签不会重发。'};
+    const config=(await readConfig()).config,old=aiRecovery.preview,dashboard=latestDidaDashboard;
+    if(!config?.scenes?.[old.scene])return {ok:false,message:'原场景已不存在，请丢弃旧便签后重新填写。'};
+    if(!['live','partial'].includes(dashboard?.source)||(dashboard.source==='partial'&&!Array.isArray(dashboard.failedProjectIds)))return {ok:false,message:'请先连接滴答并刷新清单，再恢复便签。旧便签仍保留。'};
+    const projects=(dashboard.projects||[]).filter(p=>typeof p.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(p.id)&&!dashboard.failedProjectIds?.includes(p.id)).map(p=>({id:p.id,name:p.name}));
+    if(!projects.length)return {ok:false,message:'暂无可用清单，旧便签仍保留。'};
+    const clock=assistant.localContext(),task={...old.task};
+    if(!projects.some(p=>p.id===task.projectId))task.projectId='';
+    aiDraft={id:assistant.newId(),revision:1,scene:old.scene,projects,timeZone:clock.timeZone,sentAt:old.sentAt,source:old.source,previousCreated:old.previousCreated,recovered:true,recoveredAt:aiRecovery.savedAt,previousTimeZone:old.timeZone};
+    aiSession.preview={...aiDraft,task};aiRecovery=null;saveDraft();
+    return {ok:true,preview:aiSession.preview};
+  }finally{aiRecoveryBusy=false;}
+}
+async function aiClear(){
+  if(aiCreating||aiController||aiRecoveryBusy)return {ok:false,message:'请先等待请求完成或取消生成。'};
+  await draftStorage.clear();aiRecovery=null;
+  aiSession={messages:[],input:'',preview:null,lastCreated:aiSession.lastCreated};aiDraft=null;return {ok:true};
+}
+async function aiResolve(){
+  if(aiCreating||aiController||aiRecoveryBusy)return {ok:false,message:'仍在处理便签，请稍候。'};
+  // Clearing an uncertain outcome always destroys the old recoverable copy first.
+  await draftStorage.clear();await writeProtectedJson(aiSubmissionPath(),{uncertain:false});aiDraft=null;aiSession.preview=null;aiRecovery=null;return {ok:true};
+}
 const taskWriter = assistant.createTaskWriter({getCredential:readDidaCredential,getDashboard:()=>latestDidaDashboard,apiUrl:DIDA_API_URL});
 async function aiSubmissionState() {
   try {
@@ -122,6 +161,7 @@ function aiSaveSettings(value) {
   });aiSettingsTail=pending.catch(()=>{});return pending;
 }
 async function aiGenerate(value) {
+  if(aiRecovery||aiRecoveryBusy)return {ok:false,message:'请先继续或丢弃上次未完成的便签。'};
   if(aiController||aiCreating)return {ok:false,message:'已有请求正在进行。'};
   const controller=new AbortController();aiController=controller;
   try {
@@ -149,17 +189,49 @@ async function aiGenerate(value) {
       aiSession.messages=aiSession.messages.slice(-12);
       if(result.kind==='draft'){
         aiDraft={id:assistant.newId(),revision:1,scene:value.scene,projects:projects.map(p=>({id:p.id,name:p.name})),timeZone:clock.timeZone,sentAt:`${clock.date} ${clock.time}`,previousCreated:Boolean(aiSession.lastCreated)};
-        result.preview={...aiDraft,task:result.task};aiSession.preview=result.preview;
+        result.preview={...aiDraft,task:result.task};aiSession.preview=result.preview;saveDraft();
       }
     }
     return result;
   } finally {if(aiController===controller)aiController=null;}
+}
+async function aiManualDraft(value) {
+  if(aiRecovery||aiRecoveryBusy)return {ok:false,message:'请先继续或丢弃上次未完成的便签。'};
+  if(aiController||aiCreating)return {ok:false,message:'已有请求正在进行，请先等待或取消。'};
+  const controller=new AbortController(),baseline=aiDraft?`${aiDraft.id}:${aiDraft.revision}`:'';aiController=controller;
+  try {
+    if((await aiSubmissionState()).uncertain)return {ok:false,message:'上次创建结果不确定，请先核对并解除提示。'};
+    if(aiDraft&&(value?.replaceId!==aiDraft.id||value?.replaceRevision!==aiDraft.revision))return {ok:false,message:'已有便签或便签已变化，请先查看最新便签再明确替换。'};
+    const config=(await readConfig()).config;
+    if(!config?.scenes?.[value?.scene])return {ok:false,message:'请先保存当前布局，再记任务。'};
+    const dashboard=latestDidaDashboard;
+    if(!['live','partial'].includes(dashboard?.source))return {ok:false,message:'请先连接滴答并刷新清单，再手动记任务。'};
+    if(dashboard.source==='partial'&&!Array.isArray(dashboard.failedProjectIds))return {ok:false,message:'清单读取不完整，请刷新后再记任务。'};
+    const projects=(dashboard.projects||[]).filter(p=>typeof p.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(p.id)&&!dashboard.failedProjectIds?.includes(p.id)).map(p=>({id:p.id,name:p.name}));
+    if(!projects.length)return {ok:false,message:'还没有可用清单，请先在设置中连接并刷新滴答。'};
+    if(controller.signal.aborted)return {ok:false,message:'已取消；没有创建任务。'};
+    if(baseline!==(aiDraft?`${aiDraft.id}:${aiDraft.revision}`:''))return {ok:false,message:'便签已手动修改，已保留最新便签。'};
+    const clock=assistant.localContext(new Date()),mapping={'🏥 临床':'clinical','🔬 科研':'research','📚 学习':'study','🏠 生活':'life'},mapped=config.didaListIds?.[mapping[value.scene]];
+    if(value.title!==undefined&&(typeof value.title!=='string'||value.title.trim().length>200))return {ok:false,message:'手动标题最多 200 字，请先缩短标题。'};
+    const projectId=projects.some(p=>p.id===mapped)?mapped:projects.length===1?projects[0].id:'';
+    const task={title:typeof value.title==='string'?value.title.trim().slice(0,200):'',projectId,content:'',date:clock.date,time:'',dateKind:'due',isAllDay:true};
+    aiDraft={id:assistant.newId(),revision:1,scene:value.scene,projects,timeZone:clock.timeZone,sentAt:`${clock.date} ${clock.time}`,source:'manual',previousCreated:Boolean(aiSession.lastCreated)};
+    aiSession.preview={...aiDraft,task};saveDraft();return {ok:true,preview:aiSession.preview};
+  } finally {if(aiController===controller)aiController=null;}
+}
+function startTaskFocus(value){
+  if(pomodoroSettingsBusy)return {ok:false,message:'正在保存番茄钟时长，请稍候。'};
+  const task=latestDidaDashboard?.tasks?.find(t=>t.id===value?.taskId&&t.projectId===value?.projectId&&Number(t.status)===0);
+  if(!task)return {ok:false,message:'任务已完成或不在当前列表，请刷新后重试。'};
+  const result=pomodoroTimer.focusTask({id:task.id,projectId:task.projectId,title:task.title},{replace:value.replace===true,expectedRevision:value.expectedRevision});
+  if(result.ok)publishPomodoro();return result;
 }
 async function aiCreate(value) {
   if(aiCreating)return {ok:false,message:'创建正在提交，请等待结果；不会重复发送。'};
   if(aiController)return {ok:false,message:'请先等待生成结束或取消生成，再确认草稿。'};
   if(didaAuthorization)return {ok:false,message:'滴答授权正在进行，请完成授权并刷新后再创建。'};
   if(!aiDraft||value?.id!==aiDraft.id||value?.revision!==aiDraft.revision)return {ok:false,message:'便签已变化，请查看最新便签再确认。'};
+  if(aiDraft.recovered&&value.reviewedRecovery!==true)return {ok:false,message:'这是恢复的旧便签，请核对日期、时间与目标清单，并勾选确认。'};
   try{if(JSON.stringify(assistant.validateDraft(value.task,aiDraft.projects))!==JSON.stringify(assistant.validateDraft(aiSession.preview?.task,aiDraft.projects)))return {ok:false,message:'便签内容尚未同步，请核对最新便签再确认。'};}
   catch(error){return {ok:false,message:error.message+' 原便签保留。'};}
   if(aiDraft.timeZone!==assistant.localContext().timeZone)return {ok:false,message:'电脑时区已改变，请重新生成并核对日期。'};
@@ -171,12 +243,16 @@ async function aiCreate(value) {
     try {await writeProtectedJson(aiSubmissionPath(),{uncertain:true,requestId:aiDraft.id});}
     catch {return {ok:false,message:'无法保存防重复提交记录，未发送创建请求。'};}
     const result=await queueDidaOperation(()=>taskWriter.create(aiDraft.id,value.task,aiDraft.projects,aiDraft.timeZone));
-    if(result.code!=='uncertain'){
+    // Remove any recoverable copy BEFORE clearing the submission latch. If disk
+    // cleanup fails after success, a restart must still block a duplicate create.
+    let recoveryCleared=true;
+    if(result.ok)try{await draftStorage.clear();}catch{recoveryCleared=false;result.warning=[result.warning,'任务已创建，但便签恢复副本未能清除；请核对并解除防重复提示。'].filter(Boolean).join(' ');}
+    if(result.code!=='uncertain'&&recoveryCleared){
       try {await writeProtectedJson(aiSubmissionPath(),{uncertain:false});}
       catch {result.warning=[result.warning,'结果已返回，但防重复记录未能清理；请核对后解除提示。'].filter(Boolean).join(' ');}
     }
     if(result.ok){
-      aiSession.lastCreated={task:assistant.validateDraft(value.task,aiDraft.projects),projects:aiDraft.projects,scene:aiDraft.scene,timeZone:aiDraft.timeZone,dateCheck:result.dateCheck};
+      aiSession.lastCreated={task:assistant.validateDraft(value.task,aiDraft.projects),projects:aiDraft.projects,scene:aiDraft.scene,timeZone:aiDraft.timeZone,source:aiDraft.source,dateCheck:result.dateCheck};
       aiDraft=null;aiSession.preview=null;didaRevision++;
       aiSession.messages.push({role:'assistant',content:'上一项已添加到滴答，不要重复创建；本轮不支持修改已创建任务。'});
       aiSession.messages=aiSession.messages.slice(-12);
@@ -193,7 +269,7 @@ function aiUpdatePreview(value) {
   const source=value.task;
   if(!source||typeof source!=='object')return false;
   const task={};for(const key of ['title','projectId','content','date','time','dateKind'])task[key]=typeof source[key]==='string'?source[key].slice(0,key==='content'?4000:200):'';
-  task.isAllDay=source.isAllDay===true;aiDraft.revision=value.revision;aiSession.preview={...aiDraft,task};return true;
+  task.isAllDay=source.isAllDay===true;aiDraft.revision=value.revision;aiSession.preview={...aiDraft,task};saveDraft();return true;
 }
 const taskCompletion = createDidaCompletion({ getCredential: readDidaCredential, getDashboard: () => latestDidaDashboard, fetch: (...args) => fetch(...args), apiUrl: DIDA_API_URL });
 const checkItemCompletion=createCheckItemCompletion({getCredential:readDidaCredential,getDashboard:()=>latestDidaDashboard,fetch:(...args)=>fetch(...args),apiUrl:DIDA_API_URL});
@@ -1205,6 +1281,7 @@ app.on('second-instance', (_event, commandLine) => {
   showHomepage();
 });
 app.whenReady().then(async () => {
+  aiRecovery=await draftStorage.load();
   protocol.handle('home-audio', async (request) => {
     try {
       const url = new URL(request.url);
@@ -1243,10 +1320,12 @@ app.whenReady().then(async () => {
   pomodoroInterval=setInterval(()=>pomodoroTimer.snapshot(),1000);
   ipcMain.handle('pomodoro:state',localAssistant(()=>pomodoroTimer.snapshot()));
   ipcMain.handle('pomodoro:command',localAssistant(action=>{if(pomodoroSettingsBusy)return {ok:false,message:'正在保存时长，请稍候。'};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};}));
+  ipcMain.handle('pomodoro:focus-task',localAssistant(startTaskFocus));
   ipcMain.handle('pomodoro:settings',localAssistant(async value=>{try{return await savePomodoroSettings(value);}catch(error){return {ok:false,message:error.message==='专注需为1～120分钟，休息需为1～30分钟的整数。'?error.message:'时长保存失败，原设置已保留。'};}}));
   ipcMain.handle('assistant:status',localAssistant(aiStatus));
   ipcMain.handle('assistant:settings',localAssistant(aiSaveSettings));
   ipcMain.handle('assistant:generate',localAssistant(aiGenerate));
+  ipcMain.handle('assistant:manual-draft',localAssistant(aiManualDraft));
   ipcMain.handle('assistant:test',localAssistant(async()=>{
     if(aiController||aiCreating)return {ok:false,message:'请等当前请求结束。'};
     const controller=new AbortController();aiController=controller;
@@ -1255,7 +1334,8 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle('assistant:cancel',localAssistant(()=>{aiController?.abort();return {ok:true};}));
   ipcMain.handle('assistant:create',localAssistant(aiCreate));
-  ipcMain.handle('assistant:session',localAssistant(async()=>({...aiSession,uncertain:(await aiSubmissionState()).uncertain})));
+  ipcMain.handle('assistant:session',localAssistant(aiSessionState));
+  ipcMain.handle('assistant:recover',localAssistant(aiRecover));
   ipcMain.on('assistant:input',(event,value)=>{
     const win=BrowserWindow.fromWebContents(event.sender);
     if((win===mainWindow||win===trialWindow)&&typeof value==='string')aiSession.input=value.slice(0,2000);
@@ -1264,17 +1344,8 @@ app.whenReady().then(async () => {
     const win=BrowserWindow.fromWebContents(event.sender);
     if(win===mainWindow||win===trialWindow)aiUpdatePreview(value);
   });
-  ipcMain.handle('assistant:clear',localAssistant(()=>{
-    if(aiCreating||aiController)return {ok:false,message:'请先等待请求完成或取消生成。'};
-    // Keep the last-created guard even when visible history is cleared.
-    aiSession={messages:[],input:'',preview:null,lastCreated:aiSession.lastCreated};aiDraft=null;return {ok:true};
-  }));
-  ipcMain.handle('assistant:resolve',localAssistant(async()=>{
-    if(aiCreating)return {ok:false,message:'仍在提交，请稍候。'};
-    // Explicit user acknowledgement, never automatic retry or guessed duplicate match.
-    await writeProtectedJson(aiSubmissionPath(),{uncertain:false});aiDraft=null;aiSession.preview=null;
-    return {ok:true};
-  }));
+  ipcMain.handle('assistant:clear',localAssistant(aiClear));
+  ipcMain.handle('assistant:resolve',localAssistant(aiResolve));
   ipcMain.handle('config:save', (_event, config) => writeConfig(config));
   ipcMain.handle('config:backup', async (_event, config) => {
     config={...config,pomodoroSettings:{...pomodoroSettings}};
@@ -1364,6 +1435,15 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {quotaService.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
 app.on('before-quit',(event)=>{
   if(pomodoroSettingsBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'番茄钟设置正在保存或恢复，请完成后再退出。');return;}
+  if(aiCreating||aiRecoveryBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'便签正在提交或恢复，请等待结果后再退出。');return;}
+  if(!aiQuitFlushed){
+    event.preventDefault();if(aiQuitFlushing)return;aiQuitFlushing=true;aiController?.abort();
+    if(aiSession.preview)saveDraft();
+    void draftStorage.flush().then(ok=>{
+      if(ok){aiQuitFlushed=true;app.quit();}
+      else{isQuitting=false;notifyWindow(currentUiWindow(),'便签未能加密保存，请保留窗口并重试；当前便签仍在。');}
+    }).finally(()=>{aiQuitFlushing=false;});return;
+  }
   if (loginStartupLaunch && !startupQuitCleanupInFlight && !startupQuitCleanupDone) {
     event.preventDefault();
     startupQuitCleanupInFlight = true;

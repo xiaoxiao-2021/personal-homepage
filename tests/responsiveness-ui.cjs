@@ -28,9 +28,9 @@ async function main(){
  const checks=[];
  assert.equal(await run(`document.body.classList.contains('effects-smooth')`),true);
  checks.push('new/default config uses reversible smooth policy');
- await run(`window.__calendar=document.querySelector('#calendarGrid').firstChild;window.__audio=document.querySelector('#musicAudio');window.__task=document.querySelector('#tasks').firstChild;document.querySelector('#search').value='Obsidian';document.querySelector('#search').dispatchEvent(new Event('input'));`);
- await until(`document.querySelectorAll('#appGrid .entry').length===1`);
- assert.equal(await run(`document.querySelector('#tasks').firstChild===__task&&document.querySelector('#appGrid .entry').dataset.entry==='obsidian'`),true);
+ await run(`window.__calendar=document.querySelector('#calendarGrid').firstChild;window.__audio=document.querySelector('#musicAudio');window.__task=document.querySelector('#tasks').firstChild;window.__grid=document.querySelector('#appGrid').firstChild;document.querySelector('#search').value='Obsidian';document.querySelector('#search').dispatchEvent(new Event('input'));`);
+ await until(`document.querySelectorAll('#searchResults [role=option]').length>0`);
+ assert.equal(await run(`document.querySelector('#tasks').firstChild===__task&&document.querySelector('#appGrid').firstChild===__grid&&document.querySelector('#searchResults').textContent.includes('Obsidian')`),true);
  await run(`document.querySelector('#search').value='';document.querySelector('#search').dispatchEvent(new Event('input'));`);await wait(100);
  const musicBefore=musicReports;slow=true;
  await run(`document.querySelectorAll('[data-scene]')[2].click()`);

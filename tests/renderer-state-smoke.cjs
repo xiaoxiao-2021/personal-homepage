@@ -24,7 +24,7 @@ const statusFns = source.match(/function syncTime\(value\)[\s\S]*?(?=function re
 const entryFns = source.match(/function entry\(id\)[\s\S]*?(?=function renderLayout\()/)?.[0];
 assert.ok(groups && configFns && sceneFns && taskFns && statusFns && entryFns, 'renderer config, task, scene and entry helpers are present');
 
-const nodes = { '#tasks': new Node(), '#taskSource': new Node(), '#taskCardTitle': new Node(), '#taskRange': new Node('select'), '#taskDates': new Node('select'), '#inboxProject': new Node('select'), '#status': new Node(), '#statusText': new Node(), '#didaInfo': new Node() };
+const nodes = { '#tasks': new Node(), '#searchLocation': new Node(), '#searchLocationText': new Node(), '#taskSource': new Node(), '#taskCardTitle': new Node(), '#taskRange': new Node('select'), '#taskDates': new Node('select'), '#inboxProject': new Node('select'), '#status': new Node(), '#statusText': new Node(), '#didaInfo': new Node() };
 const document = {
   querySelector: (selector) => nodes[selector],
   createElement: (tag) => new Node(tag),
@@ -33,7 +33,7 @@ const document = {
 const testHomeApi = { failSave:false, saved:null, async saveConfig(config) { if(this.failSave)throw new Error('synthetic config save failure');this.saved=JSON.parse(JSON.stringify(config));return true; } };
 const context = { URLSearchParams, location: { search: '' }, Math, JSON, Date, Intl, Number, Set, Map, document, $: (selector) => nodes[selector], HomeTaskView: require('../src/task-view.js'), window:{homeApi:testHomeApi} };
 vm.createContext(context);
-vm.runInContext(`${setup}\nlet state=clone(defaults);state.taskView.dates='today';let editing=false;let didaDashboard=null;let dida={state:'unconnected'};let refreshInFlight=false;const taskCompletionPending=new Set();const taskCompletionErrors=new Map();const collapsedTaskGroups=new Set();function toast(message){globalThis.lastToast=message;}\n${configFns}\n${groups}\n${sceneFns}\n${taskFns}\n${statusFns}\n${entryFns}`, context);
+vm.runInContext(`${setup}\nlet state=clone(defaults);state.taskView.dates='today';let editing=false;let searchTaskLocation=null;function invalidateSearch(){}let didaDashboard=null;let dida={state:'unconnected'};let refreshInFlight=false;const taskCompletionPending=new Set();const taskCompletionErrors=new Map();const collapsedTaskGroups=new Set();function toast(message){globalThis.lastToast=message;}\n${configFns}\n${groups}\n${sceneFns}\n${taskFns}\n${statusFns}\n${entryFns}`, context);
 
 const today = vm.runInContext('todayKey()', context);
 const migrated = vm.runInContext(`(()=>{const old=clone(defaults);delete old.taskView;old.didaListIds={clinical:'preserved-list-id'};old.scenes['总览'].layout.heights.tasks='tall';return normalize(old)})()`, context);

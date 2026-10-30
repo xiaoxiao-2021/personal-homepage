@@ -121,11 +121,41 @@ body.effects-smooth #moduleStack > .module-panel { background: rgba(var(--surfac
 #musicCurrent { font-size: 12px; }
 #musicStatus { font-size: 10px; }
 #pomoTime { font-size: 27px; font-weight: 600; }
-.quota-panel.is-collapsed #quotaNearest,
 .quota-panel.is-collapsed #quotaCredits,
 .quota-panel.is-collapsed #quotaStatus,
 .quota-panel.is-collapsed #quotaUpdated { display: none; }
 .quota-panel.is-collapsed .quota-summary { font-size: 11px; margin-top: 3px; }
+.quota-panel.is-collapsed #quotaNearest { font-size: 10px; line-height: 1.5; }
+.quota-panel.is-collapsed #quotaNearest:empty { display:none; }
+/* Empty tools stay useful without reserving a conversation or player panel. */
+body:not(.edit) #assistantCard.is-idle { height:auto; min-height:168px; }
+#assistantCard.is-idle #aiMessages:empty { display:none; }
+#assistantCard.is-idle #aiStatus { margin-top:auto; }
+#assistantCard .ai-actions { justify-content:flex-start; gap:6px; }
+#assistantCard .ai-actions .btn { min-height:28px; padding:4px 8px; font-size:11px; border-radius:8px; }
+#aiShowDraft { color:var(--accent); background:var(--soft); border-color:transparent; }
+.ai-note-date { font-weight:600; }
+#moduleStack > [data-module="music"].is-empty { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:7px 10px; }
+#moduleStack > [data-module="music"].is-empty .module-title { display:contents; }
+#moduleStack > [data-module="music"].is-empty .module-title > span:first-child { grid-column:1; grid-row:1; }
+#moduleStack > [data-module="music"].is-empty .module-actions { grid-column:2; grid-row:1 / span 2; }
+#moduleStack > [data-module="music"].is-empty #musicCollapse,
+#moduleStack > [data-module="music"].is-empty .music-mark,
+#moduleStack > [data-module="music"].is-empty #musicStatus { display:none; }
+#moduleStack > [data-module="music"].is-empty .music-now { grid-column:1; grid-row:2; margin:0; }
+#moduleStack > [data-module="music"].is-empty #musicCurrent { font-size:11px; color:var(--muted); }
+.task-view-controls { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:7px 10px; }
+.task-view-controls label { min-width:0; gap:5px; }
+.task-view-controls select { flex:1; width:100%; min-width:0; max-width:100%; }
+.task-view-controls #inboxProject { grid-column:1/-1; min-width:0; width:100%; }
+#aiQuickAdd { width:28px; height:28px; padding:0; font-size:20px; line-height:1; border-radius:8px; }
+.ai-head-actions { flex-wrap:wrap; justify-content:flex-end; }
+.task-focus { display:grid; place-items:center; flex:0 0 28px; width:28px; height:28px; padding:5px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); }
+.task-focus svg { width:16px; height:16px; }
+.task-focus:hover:not(:disabled),.task-focus[aria-pressed="true"] { color:var(--accent); background:var(--soft); }
+.task-focus:focus-visible,#aiQuickAdd:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.task-focus:disabled { opacity:.45; cursor:default; }
+#moduleStack #pomoTask { margin:0; padding:5px 8px; border-radius:8px; background:var(--tool-soft,var(--soft)); color:var(--tool-accent,var(--accent)); font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
 body.night .summary-meta { background: rgba(var(--surface-rgb), .96); }
 body.night .daily-greeting .greeting-sun { color: #d5bb7e; }
 @media (max-width: 1450px) {
@@ -236,4 +266,96 @@ body.night #settingsDialog .settings-danger,body.night #aiSettingsDialog #aiRemo
   #themeDialog > .modal { grid-template-columns:minmax(0,1fr); }
   :is(#themeDialog,#startupDialog,#aiSettingsDialog,#pomoDialog) > .modal { padding:18px; }
   :is(#themeDialog,#startupDialog,#aiSettingsDialog,#pomoDialog) .modal-actions { bottom:-18px; }
+}
+/* Recovery stays a quiet, bounded part of the assistant rather than another modal. */
+.ai-recovery { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:8px 10px; margin:0 16px 8px; background:var(--soft); border-radius:12px; }
+.ai-recovery[hidden],.ai-storage[hidden],.ai-recovery-review[hidden] { display:none; }
+.ai-recovery p { flex:1 1 100%; margin:0; color:var(--text); font-size:12px; line-height:1.5; }
+.ai-recovery .btn { padding:5px 10px; min-height:28px; font-size:12px; }
+.ai-storage { display:block; color:var(--muted); font-size:11px; line-height:1.4; margin:3px 0; }
+.ai-recovery-review { display:flex; align-items:flex-start; gap:8px; margin:12px 0; color:var(--text); font-size:13px; line-height:1.5; }
+.ai-recovery-review input { width:16px; height:16px; margin:2px 0; flex:none; accent-color:var(--accent); }
+/* Search floats above the page and never changes grid size or task filters. */
+.unified-search { position:fixed; z-index:80; display:flex; flex-direction:column; overflow:hidden; padding:8px; border:1px solid var(--line); border-radius:14px; background:var(--solid); color:var(--ink); box-shadow:0 10px 32px rgba(25,35,28,.14); }
+.unified-search[hidden],.search-location[hidden] { display:none; }
+.search-status,.search-hint { flex:none; margin:0; padding:8px 10px; font-size:11px; line-height:1.6; color:var(--muted); }
+.search-status { border-bottom:1px solid var(--line); }
+.search-hint { padding-bottom:3px; }
+.search-results { min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.search-group { padding:12px 10px 5px; font-size:11px; color:var(--muted); }
+.search-result { display:grid; grid-template-columns:26px minmax(0,1fr); gap:3px 8px; width:100%; padding:10px; text-align:left; border:1px solid transparent; border-radius:9px; color:var(--ink); background:transparent; cursor:pointer; font:inherit; box-shadow:none; transform:none; }
+.search-result:hover,.search-result[aria-selected=true] { background:var(--soft); border-color:var(--line); box-shadow:none; transform:none; }
+.search-result-mark { grid-row:1/3; align-self:center; color:var(--accent); text-align:center; font-size:17px; }
+.search-result-title { min-width:0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.search-result-meta { grid-column:2; color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.search-empty { margin:14px 10px; font-size:12px; color:var(--muted); }
+.search-location { flex:none; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 8px; margin:4px 0 8px; padding:6px 9px; border-radius:8px; background:var(--soft); font-size:11px; color:var(--accent); }
+.search-location .btn { min-height:26px; padding:3px 7px; font-size:11px; }
+.task.search-hit,.subtask.search-hit { outline:2px solid var(--accent); outline-offset:-2px; border-radius:8px; background:var(--soft); }
+body.night .unified-search { box-shadow:0 10px 32px rgba(0,0,0,.3); }
+@media(prefers-reduced-motion:reduce) { .search-hit { transition:none; } }
+
+/* Calm workspace: independent card heights, bounded conversations, quiet tools.
+   The adaptive entry grid and all saved tool order/size choices stay authoritative. */
+:root { --ui-card-radius:14px; }
+.card, #moduleStack > .module-panel { border-radius:var(--ui-card-radius); }
+@media(min-width:1451px) { .top .search { width:100%; max-width:420px; justify-self:end; } }
+/* Center only regular tiles; compact rows and edit handles keep their geometry. */
+#workspace:not(.compact-entries):not(.edit) #appGrid .entry { text-align:center; }
+#workspace:not(.compact-entries):not(.edit) #appGrid .entry-icon { margin-left:auto; margin-right:auto; margin-bottom:8px; }
+#workspace:not(.compact-entries):not(.edit) #appGrid .entry-copy { width:100%; min-width:0; }
+.head { padding:14px 16px 10px; }
+.head h2 { font-size:14px; letter-spacing:.015em; }
+.head .sub { font-size:11px; line-height:1.5; }
+.task-view-controls { padding:0 16px 8px; gap:6px 8px; }
+.task-view-controls label { font-size:11px; color:var(--muted); }
+.task-view-controls select { padding:5px 7px; font-size:11px; }
+.task-group summary { color:var(--muted); padding:12px 8px 7px; font-size:11px; }
+.task-group summary .count { font-size:10px; }
+.task-group .task { padding:7px 8px; gap:6px 8px; }
+.task-body { font-size:12px; line-height:1.6; }
+.task-body > small { font-size:10px; }
+.task-list-name { padding:2px 5px; border-radius:5px; background:var(--soft); color:var(--accent); font-size:10px; line-height:1.5; }
+.task-group .check-item { margin-left:10px; padding:2px 0 2px 15px; border-left:1px solid var(--line); }
+.task-group .check-item .check-item-title { font-size:11px; line-height:1.6; }
+#didaRefresh, #aiSettings { display:inline-grid; place-items:center; width:30px; height:30px; min-height:30px; padding:6px; border:1px solid transparent; border-radius:8px; color:var(--muted); }
+#didaRefresh svg, #aiSettings svg { width:16px; height:16px; }
+#didaRefresh:hover, #aiSettings:hover { background:var(--soft); color:var(--accent); }
+#didaRefresh:focus-visible, #aiSettings:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+#assistantCard { min-height:168px; }
+#assistantCard .head { padding:12px 14px 8px; }
+#assistantCard .head .sub { font-size:10px; }
+.ai-head-actions { gap:3px; }
+#aiMessages { min-height:36px; }
+.ai-message { padding:6px 9px; margin-bottom:6px; font-size:12px; line-height:1.55; border-radius:9px; }
+#aiStatus { padding:4px 14px; font-size:10px; }
+.ai-composer { padding:0 14px 12px; }
+.ai-input-wrap #aiInput { height:48px; min-height:48px; padding:8px 42px 8px 10px; font-size:12px; line-height:1.5; }
+#assistantCard .ai-actions { gap:4px; }
+#assistantCard .ai-actions .btn { padding:3px 7px; min-height:26px; }
+#moduleStack .module-title { font-size:12px; }
+#moduleStack > [data-module="time"] { gap:3px; }
+#moduleTimeNow { font-size:32px; line-height:1.1; }
+#moduleTimeDate { font-size:10px; line-height:1.5; }
+#moduleStack > [data-module="calendar"] { gap:5px; }
+#moduleStack .calendar-label { font-size:11px; line-height:1.5; }
+#moduleStack .calendar-week { font-size:10px; line-height:1.5; }
+#moduleStack .calendar-grid { gap:2px 3px; }
+#moduleStack .calendar-grid button { font-size:11px; line-height:1.4; border-radius:7px; }
+#calendarSelected { font-size:10px; }
+#moduleStack > [data-module="music"].is-empty { gap:3px 10px; }
+#moduleStack > [data-module="music"].is-empty #musicAdd { width:28px; min-width:28px; height:28px; min-height:28px; padding:0; font-size:20px; line-height:1; color:var(--accent); }
+#moduleStack > [data-module="pomodoro"] { display:grid; gap:4px; }
+#moduleStack .pomo-row { margin:0; gap:6px 10px; }
+#moduleStack #pomoTime { font-size:26px; line-height:1.15; }
+#moduleStack #pomoPhase, #moduleStack #pomoStatus { font-size:10px; }
+#moduleStack #pomoStatus { margin:0; }
+#moduleStack #pomoStart { min-height:28px; padding:4px 10px; border-radius:9px; }
+#moduleStack .quota-panel.is-collapsed { gap:4px; }
+#moduleStack .quota-panel.is-collapsed .quota-summary { margin:0; gap:5px; }
+#moduleStack .quota-panel.is-collapsed .quota-chip { padding:3px 6px; font-size:10px; }
+#tasks, #aiMessages, #moduleCard.fit-viewport { scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--muted) 35%,transparent) transparent; }
+@media(max-width:720px) {
+  .task-body { font-size:13px; }
+  #moduleStack .calendar-grid button { min-height:32px; }
 }

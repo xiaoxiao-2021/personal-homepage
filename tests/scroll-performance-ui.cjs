@@ -5,7 +5,12 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const assert=require('node:assert/strict');
 const stage=process.argv.includes('--after')?'after':'before';
-const output=path.resolve(__dirname,'../test-results/scroll-performance',stage);
+const tag=process.argv.find(v=>v.startsWith('--run-tag='))?.slice(10)||stage;
+if(!/^[a-z0-9-]+$/.test(tag))throw Error('Invalid run tag');
+const output=path.resolve(__dirname,'../test-results/scroll-performance',tag);
+const foreground=process.argv.includes('--foreground');
+const baseline=process.argv.includes('--draft-baseline');
+const pageFile=baseline?path.resolve(__dirname,'../test-results/dr-baseline/src/index.html'):path.resolve(__dirname,'../src/index.html');
 app.setPath('userData',path.join(output,'profile'));
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
@@ -37,10 +42,10 @@ async function main(){
  win.webContents.debugger.on('message',(_e,m,p)=>{if(m==='Runtime.exceptionThrown')errors.push(p.exceptionDetails.text+': '+p.exceptionDetails.exception?.description);});
  const run=code=>win.webContents.executeJavaScript(code,true);
  const metrics=async()=>Object.fromEntries((await win.webContents.debugger.sendCommand('Performance.getMetrics')).metrics.map(m=>[m.name,m.value]));
- const loadPage=async()=>{const previous=ready;await win.loadFile(path.resolve(__dirname,'../src/index.html'));for(let i=0;i<50&&ready===previous;i++)await wait(100);assert(ready>previous,'pageReady required');assert.equal(await run(`document.querySelectorAll('#sceneNav button').length`),5);};
+ const loadPage=async()=>{const previous=ready;await win.loadFile(pageFile);for(let i=0;i<50&&ready===previous;i++)await wait(100);assert(ready>previous,'pageReady required');assert.equal(await run(`document.querySelectorAll('#sceneNav button').length`),5);};
  const results=[];
  for(const count of [6,24]){
-  config=fixture(count);console.log('loading',count);await loadPage();console.log('page ready',count);win.showInactive();await wait(500);
+  config=fixture(count);console.log('loading',count);await loadPage();console.log('page ready',count);if(foreground){win.show();win.focus();}else win.showInactive();await wait(500);
   await win.webContents.debugger.sendCommand('Runtime.enable');
   await win.webContents.debugger.sendCommand('Performance.enable');
   // Same generated gradient is already the default synthetic background.
@@ -74,7 +79,7 @@ async function main(){
   }
  }
  assert.deepEqual(errors,[]);
- const report={stage,pageLoaded:true,syntheticInput:true,electron:process.versions.electron,window:[1440,720],gpu:app.getGPUFeatureStatus(),results,errors};
+ const report={stage,foregroundRequested:foreground,baseline,pageLoaded:true,syntheticInput:true,electron:process.versions.electron,window:[1440,720],gpu:app.getGPUFeatureStatus(),results,errors};
  await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));clearTimeout(timeout);win.destroy();app.exit(0);
 }
 main().catch(async e=>{console.error(e);await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'failure.txt'),String(e.stack));app.exit(1);});

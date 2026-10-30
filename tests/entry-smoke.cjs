@@ -23,13 +23,18 @@ app.whenReady().then(async () => {
     saved = JSON.parse(await fs.readFile(configFile, 'utf8'));
     return true;
   });
+  ipcMain.handle('calendar:state',()=>null);
+  ipcMain.handle('assistant:session',()=>null);
+  ipcMain.handle('pomodoro:state',()=>({phase:'focus',status:'idle',remainingMs:1500000,settings:{focus:25,break:5},revision:0}));
+  ipcMain.handle('codex-quota:read',()=>({status:'missing',message:'隔离测试',windows:[],resetCredits:{availableCount:null,expirations:[]},stale:true}));
+  ipcMain.handle('entry:icon',()=>({kind:'fallback'}));
   ipcMain.handle('app:set-hotkey', () => ({ ok: true }));
   ipcMain.handle('dida:status', () => ({ state:'unconnected', message:'示例测试：未连接' }));
   ipcMain.handle('dida:dashboard', () => ({ source:'none', tasks:[], projects:[] }));
   ipcMain.handle('entry:choose-local', async (_e, kind) => { picks++; return { kind, target:fixture, canceled:false }; });
   ipcMain.handle('entry:validate', (_e, entry) => validateEntry(entry));
   ipcMain.handle('entry:launch', async (_e, entry) => {
-    if(entry.kind === 'application') return launchValidatedEntry(entry, shell);
+    if(entry.kind === 'application') return launchValidatedEntry(entry, {openPath:async target=>{assert.equal(target,path.join(process.env.SystemRoot,'System32','calc.exe'));return '';}});
     const result = await launchValidatedEntry(entry, { openPath: async (target) => { assert.equal(target, fixture); launches++; return ''; } });
     return result;
   });
@@ -37,7 +42,7 @@ app.whenReady().then(async () => {
   const open = async () => {
     win = new BrowserWindow({ show:false, width:900, height:760, webPreferences:{ preload:path.resolve(__dirname,'../preload.cjs'), contextIsolation:true, sandbox:true } });
     await win.loadFile(path.resolve(__dirname,'../src/index.html'));
-    await win.webContents.executeJavaScript('load()');
+    for(let i=0;i<100;i++){if(await win.webContents.executeJavaScript('window.homepageReady===true'))return;await new Promise(resolve=>setTimeout(resolve,30));}throw Error('Page initialization timeout');
   };
   const js = (source) => win.webContents.executeJavaScript(source, true);
   await open();
@@ -82,7 +87,7 @@ app.whenReady().then(async () => {
   const calculatorId=Object.keys(saved.library).find(key=>saved.library[key].name==='Synthetic Calculator');
   check(!!calculatorId,'application exe path validates and saves');
   const result=await js(`window.homeApi.launchEntry({kind:entry(${JSON.stringify(calculatorId)}).kind,target:entry(${JSON.stringify(calculatorId)}).target})`);
-  check(result.ok,'real Windows shell accepts saved Calculator application launch');
+  check(result.ok,'validated executable reaches mocked shell delegation (no external application launched)');
   win.destroy();
   await fs.writeFile(path.join(root,'report.json'), JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));

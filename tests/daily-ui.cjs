@@ -1,7 +1,7 @@
 'use strict';
 // Actual local Electron renderer; all content and integration APIs are synthetic.
 const {app,BrowserWindow,ipcMain}=require('electron');
-const fsSync=require('node:fs'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
+const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url');
 const root=path.resolve(__dirname,'..'),output=path.join(root,'test-results/daily-ui');
 app.setPath('userData',path.join(output,'profile'));app.disableHardwareAcceleration();
@@ -43,6 +43,7 @@ const fixture=`(()=>{
   ])};render();
   document.querySelector('#aiMessages').replaceChildren();
   for(const [role,text] of [['assistant','今天想安排些什么？'],['user','明天下午三点整理文献']]){const n=document.createElement('div');n.className='ai-message '+role;n.textContent=text;document.querySelector('#aiMessages').append(n);}
+  window.taskAssistant.renderLayout();
   const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><defs><linearGradient id="a" x2="0" y2="1"><stop stop-color="#e1ebe6"/><stop offset="1" stop-color="#eee4d3"/></linearGradient></defs><path fill="url(#a)" d="M0 0h1600v1000H0z"/><path fill="#b6c9ba" opacity=".55" d="M0 720Q250 540 510 770T1020 730T1600 650v350H0Z"/><path fill="#d3ddcd" opacity=".8" d="M0 840Q400 700 800 860T1600 800v200H0Z"/></svg>';
   document.body.style.setProperty('--wallpaper-image','url("data:image/svg+xml,'+encodeURIComponent(svg)+'")');
 })()`;
@@ -54,13 +55,11 @@ const watchdog=setTimeout(()=>{console.error('Daily UI test timed out');app.exit
   win.webContents.on('did-fail-load',(_e,code)=>errors.push('load:'+code));
   win.webContents.on('render-process-gone',(_e,detail)=>errors.push('renderer:'+detail.reason));
   // Previous build's HTML, toolbar renderer and CSS, using the same synthetic content.
-  const backup=path.resolve(root,'../homepage-backup-20261028-toolbar');
-  if(fsSync.existsSync(path.join(backup,'src/index.html'))){
+  const backup=path.resolve(root,'../homepage-backup-20261029-comfort');
   let before=await fs.readFile(path.join(backup,'src/index.html'),'utf8');
-  before=before.replace(/(href|src)="([^":]+\.(?:css|js))"/g,(_m,attr,file)=>`${attr}="${pathToFileURL(path.join(['renderer.js','daily-ui.css'].includes(file)?path.join(backup,'src'):path.join(root,'src'),file)).href}"`);
+  before=before.replace(/(href|src)="([^":]+\.(?:css|js))"/g,(_m,attr,file)=>`${attr}="${pathToFileURL(path.join(['renderer.js','daily-ui.css','task-assistant.js','codex-quota.js'].includes(file)?path.join(backup,'src'):path.join(root,'src'),file)).href}"`);
   const beforeFile=path.join(output,'before.html');await fs.writeFile(beforeFile,before);
   await load(beforeFile);await screenshot('before-1600');
-  }
   await load(path.join(root,'src/index.html'));await screenshot('research-1600');
   check(await run(`$('#sceneNav').parentElement===document.querySelector('.top')`),'single toolbar contains scene navigation');
   const shared=await run(`window.__dailyTools=$('#moduleStack');window.__dailyAudio=$('#musicAudio');true`);

@@ -27,11 +27,15 @@ const watchdog=setTimeout(()=>app.exit(1),90000);
   const bounded=()=>js(`(()=>{const r=document.querySelector('#moduleCard').getBoundingClientRect();return document.querySelector('#moduleCard').classList.contains('fit-viewport')&&r.bottom<=innerHeight-10&&r.top>=0;})()`);
   check(await natural(),'calendar and apps are not stretched for equal bottom edges');check(await bounded(),'wide tool rail stays inside viewport');
   check(initial.clientHeight<=initial.viewport.height-initial.rail.top-10,'all tools share a viewport-sized rail without shrinking the calendar');
+  // The compact default fits a tall window; deliberately shorten this fixture to exercise keyboard overflow.
+  win.setSize(1560,760);await wait(180);
+  check(await js(`document.querySelector('#moduleCard').scrollHeight>document.querySelector('#moduleCard').clientHeight`),'keyboard scroll fixture actually overflows');
   await js(`document.querySelector('#moduleCard').focus();document.querySelector('#moduleCard').scrollTop=0;window.scrollTo(0,0)`);
   win.webContents.sendInputEvent({type:'keyDown',keyCode:'End'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'End'});await wait(250);
   check(await js(`document.activeElement.id==='moduleCard'&&document.querySelector('#moduleCard').scrollTop>0&&window.scrollY===0`),'native End key scrolls the focused tool rail without moving the page');
   await js(`document.querySelector('#moduleCard').scrollTop=document.querySelector('#moduleCard').scrollHeight`);
   check(await js(`(()=>{const r=document.querySelector('#moduleCard').getBoundingClientRect(),q=document.querySelector('[data-module="codexQuota"]').getBoundingClientRect();return q.bottom<=r.bottom&&q.top>=r.top;})()`),'last compact tool is fully reachable without page scrolling');
+  win.setSize(1560,1140);await wait(180);
   await js(`document.querySelector('#moduleCard').scrollTop=0`);
   const before=JSON.parse(await fs.readFile(path.join(output,'before-metrics.json'),'utf8'));check(initial.calendar.height<before.calendar.height-30,'calendar actually removes former artificial height');
   for(let i=0;i<5;i++){await js(`document.querySelector('#sceneNav').children[${i}].click()`);await wait(100);check(await natural()&&await bounded(),`scene ${i}: natural calendar and viewport rail`);}

@@ -12,7 +12,7 @@ const check=(v,name)=>{assert(v,name);checks.push(name);};
   const block=source.slice(source.indexOf('const aiCredentialPath ='),source.indexOf('const taskCompletion ='));
   const protectedFns=source.slice(source.indexOf('async function readProtectedJson('),source.indexOf('async function didaStatus('));
   const projects=[{id:'clinical',name:'合成临床'}];const dashboard={source:'live',projects,tasks:[],failedProjectIds:[]};
-  const context=vm.createContext({app,safeStorage,path,fs:{...fs,rename:async(...args)=>{if(renameFails)throw Error('synthetic rename fail');return fs.rename(...args);}},AbortController,
+  const context=vm.createContext({drafts:require('../assistant-drafts.cjs'),mainWindow:null,trialWindow:null,app,safeStorage,path,fs:{...fs,rename:async(...args)=>{if(renameFails)throw Error('synthetic rename fail');return fs.rename(...args);}},AbortController,
     assistant:{...core,generate:async()=>({ok:true,kind:'draft',message:'核对',task:{title:'合成任务',projectId:'clinical',content:'',date:'',time:'',dateKind:'due',isAllDay:true}}),createTaskWriter:()=>({create:async()=>{writerCalls++;await new Promise(r=>setTimeout(r,40));return writeResult;}})},
     DIDA_API_URL:'https://api.dida365.com/open/v1',didaAuthorization:null,readDidaCredential:async()=>null,readConfig:async()=>({config:{scenes:{'🏥 临床':{}},didaListIds:{clinical:'clinical'}}}),latestDidaDashboard:dashboard,didaRevision:0,queueDidaOperation:async fn=>fn(),getDidaDashboard:async()=>dashboard
   });

@@ -65,6 +65,7 @@ let completionConfirmTask = null;
 function applyDidaDashboard(value) {
   if (value && Number(value.revision || 0) < Number(didaDashboard?.revision || 0)) return;
   didaDashboard = value;
+  invalidateSearch();
 }
 function openCompletionPermission() { $('#taskPermissionDialog').showModal(); }
 async function submitTaskCompletion(task) {
@@ -192,6 +193,7 @@ function taskDate(task){return HomeTaskView.taskDate(task);}
 function taskView(task,projectName=new Map()) {
   const overdue=HomeTaskView.isOverdue(task,todayKey());
   const node=make('div',`task ${overdue?'task-overdue':''}`),key=JSON.stringify([task.projectId,task.id]);
+  node.dataset.searchTask=key;
   const mark=make('button','task-complete',taskCompletionPending.has(key)?'…':'');mark.type='button';mark.dataset.taskId=task.id;
   mark.setAttribute('role','checkbox');mark.setAttribute('aria-checked','false');mark.setAttribute('aria-label',`完成任务：${task.title}`);
   const live=['live','partial'].includes(didaDashboard?.source)&&!(didaDashboard?.source==='partial'&&(!Array.isArray(didaDashboard.failedProjectIds)||didaDashboard.failedProjectIds.includes(task.projectId)));
@@ -201,8 +203,13 @@ function taskView(task,projectName=new Map()) {
   const text=make('span','task-body');text.append(make('span','',task.title));const notes=[];if(overdue)notes.push('逾期');if(task.repeatFlag)notes.push('重复');const scheduled=taskDate(task);if(!task.isAllDay&&scheduled){const parsed=new Date(scheduled);if(!Number.isNaN(parsed.valueOf()))notes.push(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed));}if(task.startDate&&!task.dueDate)notes.push(`开始于 ${formatTaskDay(HomeTaskView.taskFieldDay(task,'startDate'))}`);if(notes.length)text.append(make('small','',notes.join(' · ')));
   if(taskCompletionErrors.has(key)){const error=make('small','task-complete-error',taskCompletionErrors.get(key));error.setAttribute('role','alert');text.append(error);}
   node.append(text);const listName=task.__projectName||projectName.get(task.projectId);if(listName)node.append(make('small','task-list-name',listName));
+  const focus=make('button','task-focus');focus.type='button';focus.dataset.focusTask=task.id;focus.dataset.focusProject=task.projectId;
+  focus.setAttribute('aria-label',`专注任务：${task.title}`);focus.title='为这件事开始一轮专注（不更改滴答任务）';focus.setAttribute('aria-pressed',String(Boolean(window.pomodoroUI?.isTaskSelected(task))));
+  focus.disabled=editing||layoutSaveInFlight;focus.innerHTML='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="m7 5 8 5-8 5Z"/></svg>';
+  focus.onclick=()=>window.pomodoroUI?.focusTask(task.projectId,task.id);node.append(focus);
   if(Array.isArray(task.checkItems))for(const item of task.checkItems){
     const done=Number(item.status)===1,row=make('div',`subtask check-item${done?' is-completed':''}`),button=make('button','task-complete check-item-complete',done?'✓':taskCompletionPending.has(key)?'…':'');
+    row.dataset.searchItem=String(item.id||'');row.dataset.searchItemIndex=String(task.checkItems.indexOf(item));
     button.type='button';button.dataset.checkItemId=item.id;button.dataset.parentTaskId=task.id;button.setAttribute('role','checkbox');button.setAttribute('aria-checked',String(done));button.setAttribute('aria-label',`${done?'已完成小项':'完成小项'}：${item.title}（${task.title}）`);
     button.disabled=done||Number(item.status)!==0||!item.id||editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
     button.title=done?'已同步完成；首页暂不提供撤销':!item.id?'此小项缺少稳定标识，请刷新':Number(item.status)!==0?'小项状态无法识别，请联网刷新':!live?'请联网刷新后再勾选小项':'仅完成这个小项，不完成父任务';
@@ -211,7 +218,7 @@ function taskView(task,projectName=new Map()) {
     const error=taskCompletionErrors.get(JSON.stringify([task.projectId,task.id,item.id]));if(error){const message=make('small','task-complete-error',error);message.setAttribute('role','alert');row.append(message);}
     node.append(row);
   }
-  else (task.subtasks||[]).filter(item=>Number(item.status)!==2).forEach(item=>node.append(make('div','subtask',`↳ ${item.title}`)));
+  else (task.subtasks||[]).forEach((item,index)=>{if(Number(item.status)===2)return;const row=make('div','subtask',`↳ ${item.title}`);row.dataset.searchItem=String(item.id||'');row.dataset.searchItemIndex=String(index);node.append(row);});
   return node;
 }
 function taskGroup(title,tasks,emptyLabel='今天暂无任务',emptyTone=''){
@@ -220,14 +227,13 @@ function taskGroup(title,tasks,emptyLabel='今天暂无任务',emptyTone=''){
 }
 function taskSourceLabel(source){return ({live:'已同步',partial:'部分同步',cache:'离线缓存',error:'同步失败',expired:'授权过期',none:'未连接',loading:'正在读取',authorizing:'等待授权'})[source]||'状态未知';}
 function formatTaskDay(key){if(!key||key==='invalid')return '日期待确认';const[y,m,d]=key.split('-');return key.startsWith(todayKey().slice(0,4))?`${Number(m)}月${Number(d)}日`:`${y}年${Number(m)}月${Number(d)}日`;}
-function taskProjectsForView(projects){
-  const view=sceneTaskView();
+function taskProjectsForView(projects,view=sceneTaskView()){
   if(view.range==='inbox')return view.inboxProjectId?[view.inboxProjectId]:[];
   if(state.scene==='总览')return projects.map(project=>project.id);
   const group=DIDA_GROUPS.find(item=>item.scene===state.scene);const id=group&&state.didaListIds?.[group.key];return id?[id]:[];
 }
-function renderInboxProject(projects){
-  const select=$('#inboxProject');const view=sceneTaskView();const known=projects.some(project=>project.id===view.inboxProjectId);
+function renderInboxProject(projects,view=sceneTaskView()){
+  const select=$('#inboxProject');const known=projects.some(project=>project.id===view.inboxProjectId);
   select.replaceChildren();const empty=make('option','','选择指定清单');empty.value='';select.append(empty);
   projects.forEach(project=>{const option=make('option','',project.name);option.value=project.id;select.append(option);});
   if(view.inboxProjectId&&!known){const stale=make('option','','已选清单暂未读取到');stale.value=view.inboxProjectId;select.append(stale);}
@@ -244,8 +250,11 @@ async function saveTaskView(change){
 }
 function renderTasks({preserveScroll=false}={}) {
   const host=$('#tasks'),previousScroll=preserveScroll?host.scrollTop:0;host.replaceChildren();
-  const view=sceneTaskView(),projects=didaDashboard?.projects||[],projectName=new Map(projects.map(project=>[project.id,project.name]));
-  $('#taskRange').value=view.range;$('#taskDates').value=view.dates;renderInboxProject(projects);
+  const view=searchTaskLocation?{range:'inbox',dates:'all',inboxProjectId:searchTaskLocation.projectId}:sceneTaskView(),projects=didaDashboard?.projects||[],projectName=new Map(projects.map(project=>[project.id,project.name]));
+  $('#searchLocation').hidden=!searchTaskLocation;
+  $('#searchLocationText').textContent=searchTaskLocation?'搜索定位 · 临时显示所在清单':'';
+  for(const id of ['taskRange','taskDates','inboxProject'])$('#'+id).disabled=Boolean(searchTaskLocation)||taskViewSaveInFlight||editing;
+  $('#taskRange').value=view.range;$('#taskDates').value=view.dates;renderInboxProject(projects,view);
   const title=view.range==='inbox'?(view.dates==='today'?'指定清单 · 今天':'指定清单安排'):(state.scene==='总览'?(view.dates==='today'?'今天':'全部安排'):`${state.scene} · ${view.dates==='today'?'今天':'全部安排'}`);
   $('#taskCardTitle').textContent=title;
   const sourceKey=didaDashboard?.source||({loading:'loading',authorizing:'authorizing',expired:'expired',error:'error',unconnected:'none'}[dida.state]||'none');
@@ -254,7 +263,7 @@ function renderTasks({preserveScroll=false}={}) {
   if(['none','error','expired'].includes(sourceKey)){host.append(make('div',`task-message ${sourceKey==='none'?'':'task-message-warning'}`,didaDashboard.message||dida.message||'滴答清单暂不可用。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   if(dida.state==='expired'&&sourceKey==='cache')host.append(make('div','task-banner task-message-warning','授权已过期 · 当前显示的是上次成功同步的离线缓存。'));
   if(view.range==='inbox'&&!view.inboxProjectId){host.append(make('div','task-message task-message-warning','请选择要显示的指定清单。当前接入不会自动判断滴答真实收集箱；未选择前不能判断为空。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
-  const projectIds=taskProjectsForView(projects),knownIds=new Set(projects.map(project=>project.id));
+  const projectIds=taskProjectsForView(projects,view),knownIds=new Set(projects.map(project=>project.id));
   if(view.range==='scene'&&state.scene!=='总览'&&!projectIds.length){host.append(make('div','task-message task-state-neutral','当前场景尚未关联任务清单；请在设置中关联对应清单。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   if(view.range==='scene'&&state.scene!=='总览'&&projectIds.length&&!knownIds.has(projectIds[0])){host.append(make('div','task-message task-message-warning','已关联的清单暂未读取到；不会将其显示为无任务。请检查清单关联或同步状态。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   if(view.range==='inbox'&&!knownIds.has(view.inboxProjectId)){host.append(make('div','task-message task-message-warning','已选择的指定清单暂未读取到；不会将其显示为无任务。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
@@ -303,10 +312,11 @@ function entrySearchText(item,label=''){return [label,item.name,item.type,item.d
 function emptyEntryState(host,area,hiddenCount,query){const box=make('div','empty-entries');const message=query?'没有匹配的入口。搜索也会查找尚未设置地址的入口。':hiddenCount?'未设置入口已隐藏；可在编辑布局中查看或配置。':'这里还没有入口。';box.append(make('span','',message));if(!query){const action=make('button','btn',hiddenCount?'查看并编辑':'添加入口');action.type='button';if(hiddenCount)action.dataset.editLayout='1';else action.dataset.add=area;box.append(action);}host.append(box);}
 function visibleEntryRefs(refs,query){return refs.filter(({item})=>item&&entrySearchText(item).includes(query||'')&&(query||editing||current().layout.showUnsetEntries||hasEntryTarget(item)));}
 function renderApps(){
-  const host=$('#appGrid');host.replaceChildren();const query=$('#search').value.trim().toLocaleLowerCase();const refs=current().apps.map((id,index)=>({id,index,item:entry(id)}));const filtered=visibleEntryRefs(refs.map(({id,index,item})=>({id,index,item,search:entrySearchText(item||{})})),query);filtered.forEach(({id,index,item})=>host.append(buttonEntry({...item,id},'',index)));if(filtered.length)return;const hiddenCount=query?0:refs.filter(({item})=>item&&!hasEntryTarget(item)).length;emptyEntryState(host,'apps',hiddenCount,query);
+  invalidateSearch();
+  const host=$('#appGrid');host.replaceChildren();const query='';const refs=current().apps.map((id,index)=>({id,index,item:entry(id)}));const filtered=visibleEntryRefs(refs.map(({id,index,item})=>({id,index,item,search:entrySearchText(item||{})})),query);filtered.forEach(({id,index,item})=>host.append(buttonEntry({...item,id},'',index)));if(filtered.length)return;const hiddenCount=query?0:refs.filter(({item})=>item&&!hasEntryTarget(item)).length;emptyEntryState(host,'apps',hiddenCount,query);
 }
 function renderSide(){
-  const host=$('#sideEntries');host.replaceChildren();const query=$('#search').value.trim().toLocaleLowerCase();const refs=current().side.map(([label,id],index)=>({label,id,index,item:entry(id)}));const filtered=refs.filter(({label,item})=>item&&entrySearchText(item,label).includes(query)&&(query||editing||current().layout.showUnsetEntries||hasEntryTarget(item)));filtered.forEach(({label,id,index,item})=>host.append(make('div','label',label),buttonEntry({...item,id},label,index)));if(filtered.length)return;const hiddenCount=query?0:refs.filter(({item})=>item&&!hasEntryTarget(item)).length;emptyEntryState(host,'side',hiddenCount,query);
+  const host=$('#sideEntries');host.replaceChildren();const query='';const refs=current().side.map(([label,id],index)=>({label,id,index,item:entry(id)}));const filtered=refs.filter(({label,item})=>item&&entrySearchText(item,label).includes(query)&&(query||editing||current().layout.showUnsetEntries||hasEntryTarget(item)));filtered.forEach(({label,id,index,item})=>host.append(make('div','label',label),buttonEntry({...item,id},label,index)));if(filtered.length)return;const hiddenCount=query?0:refs.filter(({item})=>item&&!hasEntryTarget(item)).length;emptyEntryState(host,'side',hiddenCount,query);
 }
 let calendarCursor=new Date(new Date().getFullYear(),new Date().getMonth(),1);let calendarSelected=new Date();let calendarFollowToday=true;let musicIndex=-1;let musicUrlFlight=null;let musicSaveTimer=null;
 function calendarNow(){return new Date();}
@@ -362,7 +372,7 @@ function updateMusicProgress(){
   const text=formatAudioTime(audio.currentTime)+' / '+formatAudioTime(audio.duration);
   if(time.textContent!==text)time.textContent=text;
 }
-function renderMusic(){const audio=$('#musicAudio'),tracks=state.music?.tracks||[];if(musicIndex<0&&tracks.length)musicIndex=Math.max(0,tracks.findIndex(item=>item.id===state.music.lastTrackId));if(musicIndex>=tracks.length)musicIndex=tracks.length-1;const track=musicTrack();const empty=tracks.length===0;$('#moduleStack [data-module="music"]').classList.toggle('is-empty',empty);$('#musicProgress').disabled=empty;$('#musicPrev').disabled=empty;$('#musicNext').disabled=empty;$('#musicPlay').disabled=empty;$('#musicVolume').disabled=empty;const current=$('#musicCurrent');current.textContent=track?.name||'尚未添加本地音乐';current.title=track?.name||'尚未添加本地音乐';current.setAttribute('aria-label',track?`当前歌曲：${track.name}`:'尚未添加本地音乐');$('#musicAdd').textContent=empty?'添加本地音乐':'添加音频';$('#musicPlay').textContent=track&&!audio.paused?'暂停':'播放';$('#musicVolume').value=String(state.music.volume??.8);updateMusicProgress();const list=$('#musicList');const listKey=JSON.stringify([musicIndex,tracks.map(item=>[item.id,item.name])]);if(listKey!==lastMusicListKey){lastMusicListKey=listKey;const scroll=list.scrollTop;list.replaceChildren();tracks.forEach((item,index)=>{const row=make('div',`music-item ${index===musicIndex?'active':''}`);const button=make('button','',item.name);button.type='button';button.title=item.name;button.dataset.musicIndex=String(index);const remove=make('button','', '×');remove.type='button';remove.title='仅移除歌单引用';remove.setAttribute('aria-label',`从歌单移除 ${item.name}，不会删除文件`);remove.dataset.musicRemove=String(index);row.append(button,remove);list.append(row);});list.scrollTop=scroll;}sendMusicState();}
+function renderMusic(){const audio=$('#musicAudio'),tracks=state.music?.tracks||[];if(musicIndex<0&&tracks.length)musicIndex=Math.max(0,tracks.findIndex(item=>item.id===state.music.lastTrackId));if(musicIndex>=tracks.length)musicIndex=tracks.length-1;const track=musicTrack();const empty=tracks.length===0;$('#moduleStack [data-module="music"]').classList.toggle('is-empty',empty);$('#musicProgress').disabled=empty;$('#musicPrev').disabled=empty;$('#musicNext').disabled=empty;$('#musicPlay').disabled=empty;$('#musicVolume').disabled=empty;const current=$('#musicCurrent');current.textContent=track?.name||'尚未添加本地音乐';current.title=track?.name||'尚未添加本地音乐';current.setAttribute('aria-label',track?`当前歌曲：${track.name}`:'尚未添加本地音乐');$('#musicAdd').textContent=empty?'＋':'添加音频';$('#musicAdd').setAttribute('aria-label','添加本地音乐');$('#musicAdd').title='添加本地音乐';$('#musicPlay').textContent=track&&!audio.paused?'暂停':'播放';$('#musicVolume').value=String(state.music.volume??.8);updateMusicProgress();const list=$('#musicList');const listKey=JSON.stringify([musicIndex,tracks.map(item=>[item.id,item.name])]);if(listKey!==lastMusicListKey){lastMusicListKey=listKey;const scroll=list.scrollTop;list.replaceChildren();tracks.forEach((item,index)=>{const row=make('div',`music-item ${index===musicIndex?'active':''}`);const button=make('button','',item.name);button.type='button';button.title=item.name;button.dataset.musicIndex=String(index);const remove=make('button','', '×');remove.type='button';remove.title='仅移除歌单引用';remove.setAttribute('aria-label',`从歌单移除 ${item.name}，不会删除文件`);remove.dataset.musicRemove=String(index);row.append(button,remove);list.append(row);});list.scrollTop=scroll;}sendMusicState();}
 async function chooseMusic(){if(editing){toast('请先保存或取消布局，再添加音频。');return;}const result=await window.homeApi.chooseAudioFiles();if(result.error){toast(result.error);return;}if(result.canceled)return;const before=clone(state.music);for(const file of result.files||[]){if(!state.music.tracks.some(item=>item.target===file.target))state.music.tracks.push({id:uid(),name:file.name,target:file.target});}try{if(await window.homeApi.saveConfig(clone(state))===false)throw new Error();toast(`已添加 ${result.files.length} 首音频；不会自动播放。`);renderMusic();}catch{state.music=before;toast('歌单保存失败，未改变原有配置。');}}
 function playMusic(){const audio=$('#musicAudio');if(!musicTrack()){toast('请先添加音频。');return;}if(!audio.src){void setMusicSource(musicTrack(),true);return;}if(audio.paused)audio.play().catch(()=>{$('#musicStatus').textContent='音频无法播放或格式不支持。';});else audio.pause();sendMusicState();renderMusic();}
 function stepMusic(delta){const tracks=state.music?.tracks||[];if(!tracks.length)return;musicIndex=(musicIndex+delta+tracks.length)%tracks.length;state.music.lastTrackId=tracks[musicIndex].id;state.music.lastTime=0;void setMusicSource(tracks[musicIndex],!$('#musicAudio').paused);}
@@ -474,7 +484,7 @@ function renderDidaMapping(){
     label.append(select);host.append(label);
   });
 }
-function render(){ cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;renderAppearance();$('#hotkey').value=state.shortcut||''; renderScenes();renderLayout();renderTasks();renderApps();renderSide();renderStatus();renderDidaMapping(); }
+function render(){ invalidateSearch();renderAppearance();$('#hotkey').value=state.shortcut||''; renderScenes();renderLayout();renderTasks();renderApps();renderSide();renderStatus();renderDidaMapping(); }
 const renderLayoutLegacy=renderLayout;
 renderLayout=function(){
   renderLayoutLegacy();
@@ -489,12 +499,13 @@ renderLayout=function(){
       card.hidden=modules.visible[card.dataset.card]===false;
     }
   }
+  if(searchTaskLocation)$('#workspace [data-card=tasks]').hidden=false;
   $('#moduleManagerBtn').hidden=!editing;
   renderModules();
   window.taskAssistant?.renderLayout();
   window.pomodoroUI?.layoutChanged();
 };
-function startEdit(){ if(editing||layoutSaveInFlight)return;const startedAt=performance.now();editing=true;draft=clone(state);render();recordUiTiming('edit',startedAt); }
+function startEdit(){ if(editing||layoutSaveInFlight)return;leaveSearchLocation(true);closeSearch();const startedAt=performance.now();editing=true;draft=clone(state);render();recordUiTiming('edit',startedAt); }
 function setLayoutSaveUi(saving){document.body.classList.toggle('layout-saving',saving);for(const id of ['editBtn','cancelEditBtn','cleanLayoutBtn','moduleManagerBtn','themeBtn','settingsBtn','desktopModeBtn']){const node=$('#'+id);if(node)node.disabled=saving;}if(saving)setToolbarAction($('#editBtn'),'正在保存…','busy',true);}
 async function stopEdit(save) {
   if(layoutSaveInFlight)return false;
@@ -570,7 +581,7 @@ async function saveSettings(){
 function inferDidaMapping(projects){state.didaListIds=state.didaListIds||{};let changed=false;DIDA_GROUPS.forEach((group)=>{if(Object.prototype.hasOwnProperty.call(state.didaListIds,group.key))return;const match=projects.find((project)=>project.name===group.label)||projects.find((project)=>project.name.includes(group.hint));if(match){state.didaListIds[group.key]=match.id;changed=true;}});return changed;}
 function nextDidaRefreshDelay(){if(dida.state==='authorizing')return 5000;if(['unconnected','expired','none'].includes(dida.state))return null;if(didaFailureCount>0)return Math.min(300000,30000*Math.pow(2,Math.min(4,didaFailureCount-1)));return 300000;}
 function scheduleDidaRefresh(){clearTimeout(didaPollTimer);didaPollTimer=null;if(document.hidden||refreshInFlight)return;const delay=nextDidaRefreshDelay();if(delay===null)return;const wait=Math.max(0,delay-(Date.now()-lastDidaAttemptAt));didaPollTimer=setTimeout(()=>{void refreshDidaStatus({silent:true});},wait);}
-async function refreshDidaStatus({silent=false}={}){if(refreshInFlight)return;refreshInFlight=true;lastDidaAttemptAt=Date.now();if(!didaDashboard)dida={state:'loading',message:'正在读取滴答清单…'};const button=$('#didaRefresh');button.disabled=true;button.textContent='刷新中';if(!didaDashboard)renderTasks({preserveScroll:true});renderStatus();try{dida=await window.homeApi.didaStatus();applyDidaDashboard(await window.homeApi.didaDashboard());if(didaDashboard?.projects&&!editing&&!appearanceDraft&&!$('#settingsDialog').open&&inferDidaMapping(didaDashboard.projects))await persist();if(didaDashboard?.source==='live'){didaFailureCount=0;}else if(['partial','cache','error'].includes(didaDashboard?.source))didaFailureCount=Math.min(didaFailureCount+1,5);if(!silent&&didaDashboard?.source==='live')toast('滴答清单已刷新。');if(dida.authorizationError)toast(dida.authorizationError);}catch{dida={state:'error',message:'无法读取滴答清单连接状态。'};didaFailureCount=Math.min(didaFailureCount+1,5);}finally{refreshInFlight=false;button.disabled=false;button.textContent='刷新';renderTasks({preserveScroll:true});renderStatus();if($('#settingsDialog').open)renderDidaMapping();scheduleDidaRefresh();}}
+async function refreshDidaStatus({silent=false}={}){if(refreshInFlight)return;refreshInFlight=true;lastDidaAttemptAt=Date.now();if(!didaDashboard)dida={state:'loading',message:'正在读取滴答清单…'};const button=$('#didaRefresh');button.disabled=true;button.setAttribute('aria-busy','true');button.setAttribute('aria-label','正在刷新滴答清单任务');button.title='正在刷新滴答清单任务';if(!didaDashboard)renderTasks({preserveScroll:true});renderStatus();try{dida=await window.homeApi.didaStatus();applyDidaDashboard(await window.homeApi.didaDashboard());if(didaDashboard?.projects&&!editing&&!appearanceDraft&&!$('#settingsDialog').open&&inferDidaMapping(didaDashboard.projects))await persist();if(didaDashboard?.source==='live'){didaFailureCount=0;}else if(['partial','cache','error'].includes(didaDashboard?.source))didaFailureCount=Math.min(didaFailureCount+1,5);if(!silent&&didaDashboard?.source==='live')toast('滴答清单已刷新。');if(dida.authorizationError)toast(dida.authorizationError);}catch{dida={state:'error',message:'无法读取滴答清单连接状态。'};didaFailureCount=Math.min(didaFailureCount+1,5);}finally{refreshInFlight=false;button.disabled=false;button.setAttribute('aria-busy','false');button.setAttribute('aria-label','刷新滴答清单任务');button.title='刷新滴答清单任务';renderTasks({preserveScroll:true});renderStatus();if($('#settingsDialog').open)renderDidaMapping();scheduleDidaRefresh();}}
 async function load(){
   const loaded=await window.homeApi.loadConfig();
   restoreCalendarSession(await window.homeApi.calendarState?.());
@@ -602,17 +613,91 @@ function keyboardLaunch(event){if(event.key==='Escape'&&!$('#entryContextMenu').
 $('#sceneNav').addEventListener('click',async event=>{
   const button=event.target.closest('[data-scene]');
   if(!button||button.dataset.scene===state.scene)return;
-  state.scene=button.dataset.scene;
+  leaveSearchLocation(false,false);closeSearch();state.scene=button.dataset.scene;
   const startedAt=performance.now();render();recordUiTiming('scene',startedAt);
   // The main process serializes immutable config snapshots. Paint the selected
   // scene immediately; disk latency must not delay interaction feedback.
   if(!editing)try{await persist();}catch{toast('场景已切换，但保存失败；重新打开时可能恢复此前场景。');}
 });
-let searchRenderFrame=0;
-$('#search').addEventListener('input',()=>{
-  cancelAnimationFrame(searchRenderFrame);
-  searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=0;const startedAt=performance.now();renderApps();renderSide();recordUiTiming('search',startedAt);});
+let searchRenderFrame=0,searchDirty=true,searchIndex=[],searchRows=[],searchActive=-1,searchTaskLocation=null,searchHighlightTimer=null;
+const searchInput=$('#search'),searchPanel=make('section','unified-search');
+searchPanel.hidden=true;searchPanel.setAttribute('aria-label','统一搜索');
+const searchStatus=make('p','search-status'),searchResults=make('div','search-results'),searchHint=make('p','search-hint','↑ ↓ 选择 · Enter 打开或定位 · Esc 关闭');
+searchStatus.id='searchStatus';searchStatus.setAttribute('role','status');searchStatus.setAttribute('aria-live','polite');
+searchResults.id='searchResults';searchResults.setAttribute('role','listbox');searchResults.setAttribute('aria-label','入口与任务结果');
+searchInput.setAttribute('aria-describedby','searchStatus');searchPanel.append(searchStatus,searchResults,searchHint);document.body.append(searchPanel);
+function closeSearch(){cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;searchPanel.hidden=true;searchInput.setAttribute('aria-expanded','false');searchInput.removeAttribute('aria-activedescendant');searchActive=-1;}
+function invalidateSearch(){searchDirty=true;if(!searchPanel.hidden)scheduleSearch();}
+function positionSearch(){
+  if(searchPanel.hidden)return;const r=searchInput.getBoundingClientRect(),width=Math.min(620,Math.max(350,r.width),innerWidth-24);
+  const top=Math.min(innerHeight-100,Math.max(12,r.bottom+8));
+  searchPanel.style.width=width+'px';searchPanel.style.left=Math.max(12,Math.min(r.left,innerWidth-width-12))+'px';searchPanel.style.top=top+'px';searchPanel.style.maxHeight=Math.max(80,innerHeight-top-12)+'px';
+}
+function setSearchActive(index){
+  searchActive=searchRows.length?(index+searchRows.length)%searchRows.length:-1;
+  const nodes=[...searchResults.querySelectorAll('[role=option]')];nodes.forEach((node,i)=>node.setAttribute('aria-selected',String(i===searchActive)));
+  if(searchActive<0){searchInput.removeAttribute('aria-activedescendant');return;}
+  searchInput.setAttribute('aria-activedescendant',nodes[searchActive].id);nodes[searchActive].scrollIntoView({block:'nearest'});
+}
+function renderSearch(){
+  cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;
+  const query=searchInput.value.trim().slice(0,200);if(!query){closeSearch();return;}
+  const startedAt=performance.now();if(searchDirty){searchIndex=HomeSearch.collect(state,didaDashboard,SCENES);searchDirty=false;}
+  const result=HomeSearch.query(searchIndex,query,state.scene);searchRows=result.rows;searchActive=-1;searchInput.removeAttribute('aria-activedescendant');searchResults.replaceChildren();
+  searchStatus.textContent=`${result.total?`找到 ${result.total} 项`:'没有找到匹配结果'} · ${HomeSearch.sourceMessage(didaDashboard)}${dida.state==='expired'&&didaDashboard?.source==='cache'?' · 授权已过期':''}`;
+  if(result.total>searchRows.length)searchStatus.append(document.createTextNode(' · 每组最多显示 60 项，请补充关键词'));
+  let previous='';searchRows.forEach((row,index)=>{
+    const group=row.kind==='entry'?'入口':'任务与小项';if(group!==previous){const heading=make('div','search-group',group);heading.setAttribute('role','presentation');searchResults.append(heading);previous=group;}
+    const option=make('button','search-result');option.type='button';option.tabIndex=-1;option.id='search-result-'+index;option.dataset.searchResult=String(index);option.setAttribute('role','option');option.setAttribute('aria-selected','false');
+    const title=make('span','search-result-title',row.title),meta=row.kind==='entry'?[row.scenes.join(' / '),row.configured?'':'未设置地址'].filter(Boolean).join(' · '):[row.kind==='subtask'?'小项 · '+row.parentTitle:'任务',row.projectName,row.date==='invalid'?'日期待确认':row.date||'未设日期'].join(' · ');
+    option.append(make('span','search-result-mark',row.kind==='entry'?'↗':row.kind==='subtask'?'↳':'○'),title,make('small','search-result-meta',meta));searchResults.append(option);
+  });
+  if(!searchRows.length)searchResults.append(make('p','search-empty','试试任务名称、清单名称或软件名称。'));
+  searchPanel.hidden=false;searchInput.setAttribute('aria-expanded','true');positionSearch();recordUiTiming('search',startedAt);
+}
+function scheduleSearch(){cancelAnimationFrame(searchRenderFrame);searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=0;renderSearch();});}
+function leaveSearchLocation(restore,rerender=true){
+  if(!searchTaskLocation)return;const previous=searchTaskLocation;searchTaskLocation=null;clearTimeout(searchHighlightTimer);
+  if(restore)state.scene=previous.previousScene;
+  collapsedTaskGroups.clear();for(const group of previous.collapsed)collapsedTaskGroups.add(group);
+  if(rerender)render();if(restore&&rerender)$('#tasks').scrollTop=previous.scrollTop;
+}
+function highlightSearchTask(row){
+  const key=JSON.stringify([row.projectId,row.taskId]),task=[...$('#tasks').querySelectorAll('[data-search-task]')].find(node=>node.dataset.searchTask===key);
+  if(!task){toast('这条任务已变化或暂不可用，请重新搜索。');return;}
+  const group=task.closest('details');if(group){group.open=true;collapsedTaskGroups.delete(group.dataset.groupTitle);}
+  const item=row.kind==='subtask'?[...task.querySelectorAll('[data-search-item-index]')].find(node=>row.itemId?node.dataset.searchItem===String(row.itemId):node.dataset.searchItemIndex===String(row.itemIndex)):null;
+  const target=item||task;target.tabIndex=-1;target.classList.add('search-hit');target.focus({preventScroll:true});target.scrollIntoView({block:'nearest',behavior:'instant'});clearTimeout(searchHighlightTimer);searchHighlightTimer=setTimeout(()=>target.classList.remove('search-hit'),2500);
+}
+async function chooseSearchResult(index){
+  const row=searchRows[index];if(!row)return;
+  if(editing||layoutSaveInFlight||taskViewSaveInFlight){toast('请先保存或取消编辑，等待保存结束后再打开搜索结果。');return;}
+  // Revalidate against the current in-memory snapshot before acting on a stale option.
+  const fresh=HomeSearch.collect(state,didaDashboard,SCENES).find(item=>item.kind===row.kind&&(row.kind==='entry'?item.id===row.id:item.projectId===row.projectId&&item.taskId===row.taskId&&(row.kind!=='subtask'||(row.itemId?item.itemId===row.itemId:item.itemIndex===row.itemIndex&&item.title===row.title))));
+  if(!fresh){invalidateSearch();toast('这项内容已变化，请选择最新搜索结果。');return;}
+  closeSearch();
+  if(row.kind==='entry'){await activateEntry(row.id);return;}
+  leaveSearchLocation(true);
+  const previousScene=state.scene,scrollTop=$('#tasks').scrollTop;
+  searchTaskLocation={...fresh,previousScene,scrollTop,collapsed:[...collapsedTaskGroups]};state.scene=groupForProject(row.projectId)?.scene||'总览';render();highlightSearchTask(fresh);
+}
+$('#searchLocationBack').onclick=()=>{leaveSearchLocation(true);searchInput.focus({preventScroll:true});closeSearch();};
+searchInput.addEventListener('input',event=>{if(!event.isComposing)scheduleSearch();});searchInput.addEventListener('compositionend',scheduleSearch);
+searchInput.addEventListener('focus',()=>{if(searchInput.value.trim())scheduleSearch();});
+searchInput.addEventListener('blur',()=>setTimeout(()=>{if(!searchPanel.contains(document.activeElement)&&document.activeElement!==searchInput)closeSearch();},0));
+searchInput.addEventListener('keydown',event=>{
+  if(event.isComposing||event.keyCode===229)return;
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeSearch();return;}
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(searchRenderFrame||searchPanel.hidden)renderSearch();if(searchPanel.hidden)return;setSearchActive(searchActive<0?(event.key==='ArrowDown'?0:searchRows.length-1):searchActive+(event.key==='ArrowDown'?1:-1));return;}
+  if(event.key==='Enter'){event.preventDefault();if(searchRenderFrame){cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;renderSearch();}if(!searchPanel.hidden)void chooseSearchResult(searchActive<0?0:searchActive);}
 });
+searchPanel.addEventListener('pointerdown',event=>{if(event.target.closest('[data-search-result]'))event.preventDefault();});
+searchPanel.addEventListener('click',event=>{const node=event.target.closest('[data-search-result]');if(node)void chooseSearchResult(Number(node.dataset.searchResult));});
+document.addEventListener('pointerdown',event=>{if(event.target!==searchInput&&!searchPanel.contains(event.target))closeSearch();});
+document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='k'&&!event.isComposing&&!document.querySelector('dialog[open]')){event.preventDefault();searchInput.focus();searchInput.select();}});
+window.addEventListener('resize',positionSearch);window.addEventListener('scroll',event=>{if(event.target===window||!searchPanel.contains(event.target))positionSearch();},true);
+window.addEventListener('pagehide',()=>{closeSearch();clearTimeout(searchHighlightTimer);});
+
 $('#editBtn').addEventListener('click',()=>editing?stopEdit(true):startEdit());
 $('#cancelEditBtn').addEventListener('click',()=>stopEdit(false));
 function openAppearance(){appearanceDraft=clone({theme:state.theme,appearance:state.appearance});renderAppearance();$('#themeDialog').showModal();}
@@ -702,8 +787,8 @@ $('#taskCompleteCancel').onclick=()=>{completionConfirmTask=null;$('#taskComplet
 $('#taskCompleteApply').onclick=()=>{const task=completionConfirmTask;completionConfirmTask=null;$('#taskCompleteConfirmDialog').close();if(task)void submitTaskCompletion(task);};
 $('#taskRange').onchange=()=>saveTaskView({range:$('#taskRange').value});$('#taskDates').onchange=()=>saveTaskView({dates:$('#taskDates').value});$('#inboxProject').onchange=()=>saveTaskView({inboxProjectId:$('#inboxProject').value});
 document.addEventListener('click',event=>{const contextActionButton=event.target.closest('[data-context-action]');if(contextActionButton){contextAction(contextActionButton.dataset.contextAction);return;}const contextSceneButton=event.target.closest('[data-context-scene]');if(contextSceneButton&&contextEntry){const {id,area}=contextEntry;const sceneName=contextSceneButton.dataset.contextScene;closeEntryMenu();if(!editing)startEdit();addEntryToScene(sceneName,id,area);renderApps();renderSide();toast(`已加入 ${sceneName}；保存布局后生效。`);return;}const editLayout=event.target.closest('[data-edit-layout]');if(editLayout){if(!editing)startEdit();return;}const add=event.target.closest('[data-add]');if(add){buildEntryDialog({area:add.dataset.add,id:null});return;}const edit=event.target.closest('[data-edit]');if(edit){buildEntryDialog({area:edit.dataset.edit,id:edit.dataset.entry});return;}const remove=event.target.closest('[data-remove]');if(remove){if(!editing)startEdit();removeEntry(remove.dataset.remove,remove.dataset.entry);return;}const launch=event.target.closest('[data-entry]');if(launch&&!event.target.closest('.remove')&&!event.target.closest('.edit-item'))activateEntry(launch.dataset.entry);});document.addEventListener('change',event=>{const height=event.target.closest('[data-layout-height]');if(height)adjustHeight(height.dataset.layoutHeight,height.value);const setting=event.target.closest('[data-layout-setting]');if(setting&&editing){current().layout[setting.dataset.layoutSetting]=setting.value;renderLayout();}const view=event.target.closest('[data-view-toggle]');if(view&&editing){current().layout[view.dataset.viewToggle]=view.value==='true';renderLayout();renderApps();renderSide();}});document.addEventListener('pointerdown',event=>{if(!event.target.closest('#entryContextMenu'))closeEntryMenu();});document.addEventListener('keydown',keyboardLaunch);$('#workspace').addEventListener('contextmenu',event=>{const node=event.target.closest('[data-entry]');if(!node)return;event.preventDefault();openEntryMenu(node.dataset.entry,node.dataset.entryArea||'apps',event.clientX,event.clientY);});$('#tasks').addEventListener('toggle',event=>{const detail=event.target;if(detail.matches?.('details.task-group')){const title=detail.dataset.groupTitle;if(!detail.open)collapsedTaskGroups.add(title);else collapsedTaskGroups.delete(title);}},true);$('#tasks').addEventListener('change',event=>{if(event.target.dataset.task)toast('已更新示例任务状态；未同步到滴答清单。');});
-let appDrag=null;$('#appGrid').addEventListener('dragstart',event=>{const node=event.target.closest('.entry');if(!editing||!node||event.target.closest('button'))return;if($('#search').value.trim()){toast('请先清空搜索，再调整入口顺序。');return;}appDrag=Number(node.dataset.index);});$('#appGrid').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#appGrid').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.entry');if(!editing||appDrag===null||!node)return;const to=Number(node.dataset.index);const ids=current().apps;ids.splice(to,0,ids.splice(appDrag,1)[0]);appDrag=null;renderApps();toast('入口顺序已调整。');});
-let sideDrag=null;$('#sideEntries').addEventListener('dragstart',event=>{const node=event.target.closest('.side-entry');if(!editing||!node||event.target.closest('button'))return;if($('#search').value.trim()){toast('请先清空搜索，再调整入口顺序。');return;}sideDrag=Number(node.dataset.index);});$('#sideEntries').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#sideEntries').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.side-entry');if(!editing||sideDrag===null||!node)return;const to=Number(node.dataset.index);const refs=current().side;refs.splice(to,0,refs.splice(sideDrag,1)[0]);sideDrag=null;renderSide();toast('项目与资料入口顺序已调整。');});
+let appDrag=null;$('#appGrid').addEventListener('dragstart',event=>{const node=event.target.closest('.entry');if(!editing||!node||event.target.closest('button'))return;appDrag=Number(node.dataset.index);});$('#appGrid').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#appGrid').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.entry');if(!editing||appDrag===null||!node)return;const to=Number(node.dataset.index);const ids=current().apps;ids.splice(to,0,ids.splice(appDrag,1)[0]);appDrag=null;renderApps();toast('入口顺序已调整。');});
+let sideDrag=null;$('#sideEntries').addEventListener('dragstart',event=>{const node=event.target.closest('.side-entry');if(!editing||!node||event.target.closest('button'))return;sideDrag=Number(node.dataset.index);});$('#sideEntries').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#sideEntries').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.side-entry');if(!editing||sideDrag===null||!node)return;const to=Number(node.dataset.index);const refs=current().side;refs.splice(to,0,refs.splice(sideDrag,1)[0]);sideDrag=null;renderSide();toast('项目与资料入口顺序已调整。');});
 let cardDrag=null;$('#workspace').addEventListener('dragstart',event=>{const card=event.target.closest('.card');if(!editing||!card||event.target.closest('.entry'))return;cardDrag=card.dataset.card;});$('#workspace').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#workspace').addEventListener('drop',event=>{const card=event.target.closest('.card');if(!editing||!cardDrag||!card||cardDrag===card.dataset.card)return;const order=current().layout.order;order.splice(order.indexOf(card.dataset.card),0,order.splice(order.indexOf(cardDrag),1)[0]);cardDrag=null;renderLayout();toast('卡片位置已调整。');});
 $('#backupBtn').onclick=async()=>{const result=await window.homeApi.backupConfig(state);if(result.error){toast(result.error);return;}if(!result.canceled)toast('配置备份已完成。');};$('#restoreBtn').onclick=async()=>{const result=await window.homeApi.restoreConfig();if(result.error){toast(result.error);return;}if(!result.canceled){state=normalizeConfigWithTools(result.config);await persist();$('#settingsDialog').close();render();toast('配置已恢复。');}};$('#resetBtn').onclick=async()=>{if(!window.confirm(`仅恢复“${state.scene}”场景的卡片顺序、高度、模块显隐、入口大小/样式、间距和未设置入口显示偏好？入口本身、共用右侧工具、壁纸、主题、滴答关联/授权及其他场景不会改变。`))return;current().layout=clone(defaults.scenes[state.scene].layout);await persist();$('#settingsDialog').close();render();toast('当前场景布局已恢复默认；共用工具和其他设置未改变。');};$('#settingsSave').onclick=saveSettings;
 let clockTimer=null,lastTaskDayKey=todayKey();function refreshTaskDayIfNeeded(){const currentDay=todayKey();if(currentDay===lastTaskDayKey)return false;lastTaskDayKey=currentDay;renderTasks({preserveScroll:true});return true;}function scheduleClock(){clearTimeout(clockTimer);clockTimer=null;if(document.hidden)return;dateText();renderCalendar();refreshTaskDayIfNeeded();clockTimer=setTimeout(scheduleClock,60000);}document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(clockTimer);clockTimer=null;clearTimeout(didaPollTimer);didaPollTimer=null;}else{scheduleClock();updateMusicProgress();scheduleDidaRefresh();}});window.addEventListener('focus',scheduleClock);window.homeApi.onCalendarCheck?.(scheduleClock);document.addEventListener('click',event=>{const button=event.target.closest?.('[data-add-folder]');if(button){buildEntryDialog({area:button.dataset.addFolder,id:null,initialKind:'folder',initialName:'文件中转站'});}});scheduleClock();load();
