@@ -2,8 +2,8 @@
 // Offline, allowlisted Electron prebuilt-binary packaging. No install/download/hooks.
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),{execFile}=require('node:child_process'),{promisify}=require('node:util');
 const run=promisify(execFile),root=path.resolve(__dirname,'..'),releaseRoot=path.resolve(root,'../releases');
-const SOURCE_FILES=['main.cjs','preload.cjs','preload-trial.cjs','portable-runtime.cjs','startup-settings.cjs','startup-record.cjs','read-startup-record.ps1','desktop-bridge.ps1','local-entry.cjs','entry-icon.cjs','dida-completion.cjs','dida-check-items.cjs','task-assistant.cjs','assistant-drafts.cjs','pomodoro.cjs','codex-quota.cjs',
-  ...['index.html','desktop-trial.html','renderer.js','task-view.js','unified-search.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css','daily-ui.css'].map(file=>'src/'+file)];
+const SOURCE_FILES=['main.cjs','preload.cjs','preload-trial.cjs','portable-runtime.cjs','startup-settings.cjs','startup-record.cjs','read-startup-record.ps1','desktop-bridge.ps1','local-entry.cjs','entry-icon.cjs','dida-completion.cjs','dida-check-items.cjs','task-assistant.cjs','assistant-drafts.cjs','startup-guide.cjs','pomodoro.cjs','codex-quota.cjs',
+  ...['index.html','desktop-trial.html','renderer.js','task-view.js','unified-search.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css','daily-ui.css','startup-guide.js'].map(file=>'src/'+file)];
 // Keep English as Chromium's fallback on non-Chinese Windows installations.
 // These are runtime translations only; app data and user language settings are untouched.
 const RUNTIME_LOCALES=['en-US.pak','zh-CN.pak','zh-TW.pak'];

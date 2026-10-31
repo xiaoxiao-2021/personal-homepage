@@ -14,6 +14,8 @@ function inspector(ws){let id=0;const pending=new Map();ws.addEventListener('mes
   const request=++id,result=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(request);reject(Error('Inspector evaluation timeout'));},15000);pending.set(request,{resolve,reject,timer});ws.send(JSON.stringify({id:request,method:'Runtime.evaluate',params:{expression,awaitPromise:true,returnByValue:true}}));});
   if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);return result.result?.value;
 };}
+const {isolatedProfile}=require('../portable-runtime.cjs');
+const testProfile=()=>isolatedProfile(exe,require('node:os').tmpdir());
 const electron="process.mainModule.require('electron')";
 const main=expression=>client(expression);
 const page=expression=>main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];return await w.webContents.executeJavaScript(${JSON.stringify(expression)},true);})()`);
@@ -28,7 +30,7 @@ async function launch(locale){
   await until(()=>page(`window.homepageReady===true&&typeof window.homeApi==='object'&&document.querySelector('#sceneNav').children.length===5&&document.querySelectorAll('#appGrid .entry').length>0`),'actual homepage initialization');
   const facts=await main(`(async()=>{const e=${electron};return {packaged:e.app.isPackaged,profile:e.app.getPath('userData'),app:e.app.getAppPath(),windows:e.BrowserWindow.getAllWindows().length,electron:process.versions.electron};})()`);
   check(facts.packaged===true,'actual standalone executable reports packaged mode');
-  check(facts.profile===path.join(directory,'.isolated-test-profile'),'actual app uses extracted test profile, not source or normal preview profile');
+  check(facts.profile===testProfile(),'actual app uses stable short isolated profile, not source or normal preview profile');
   check(facts.app===path.join(directory,'resources','app'),'actual application loads its bundled source rather than original project');
   const expected=JSON.parse(await fs.readFile(path.join(directory,'portable-manifest.json'),'utf8'));
   check(await page(`(async()=>{const a=await homeApi.about();return a.version===${JSON.stringify(expected.version)}&&a.buildId===${JSON.stringify(expected.buildId)}&&a.distribution.includes('免安装测试版');})()`),'actual preload reports expected version/build/channel');
@@ -60,6 +62,8 @@ async function quit(){
   const {createHash}=require('node:crypto');for(const file of manifest.files){const bytes=await fs.readFile(path.join(directory,file.path));assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);}
   check(true,'all extracted runtime and application files match manifest SHA256');
   await launch();
+  check(await page(`document.querySelector('#guideDialog').open`),'fresh packaged profile opens optional setup guide');
+  await nativeClick('#guideSkip');check(await page(`!document.querySelector('#guideDialog').open`),'native skip closes setup guide');
   check(await page(`(async()=>{const s=await homeApi.startupSettings();return s.state==='preview'&&!s.supported&&!(await homeApi.saveStartupSettings({enabled:true})).ok;})()`),'real startup IPC refuses writes in preview');
   check(await page(`(async()=>{const d=await homeApi.didaStatus();return d.state==='unconnected';})()`),'actual app has no inherited Dida login');
   await screenshot('overview');
@@ -112,8 +116,9 @@ async function quit(){
   const localeProbe=await main(`({requested:process.argv.includes('--lang=ja-JP'),effective:${electron}.app.getLocale()})`);
   check(localeProbe.requested&&typeof localeProbe.effective==='string'&&localeProbe.effective.length>0,'explicit non-bundled locale launch loads page and reports effective locale');
   check(await page(`state.tools.musicCollapsed===true`),'saved preference survives full packaged process restart');
+  check(await page(`!document.querySelector('#guideDialog').open`),'skipped setup stays dismissed after real restart');
   check(await page(`(async()=>{return (await homeApi.pomodoroState()).status==='idle'&&document.querySelector('#musicAudio').paused;})()`),'timer restarts idle and music paused');
-  check(await page(`(async()=>{const s=await homeApi.assistantSession();return s.recovery?.preview.task.title==='合成重启恢复便签'&&!s.preview&&!document.querySelector('#aiRecovery').hidden&&!document.querySelector('#aiPreviewDialog').open;})()`),'real process restart reads native encrypted draft and offers explicit recovery');
+  check(await page(`(async()=>{const s=await homeApi.assistantSession();return s.recovery?.preview?.task.title==='合成重启恢复便签'&&!s.preview&&!document.querySelector('#aiRecovery').hidden&&!document.querySelector('#aiPreviewDialog').open;})()`),'real process restart reads native encrypted draft and offers explicit recovery');
   check(await page(`(async()=>{const r=await homeApi.assistantRecover({action:'restore'});return r.ok===false&&!!(await homeApi.assistantSession()).recovery;})()`),'actual packaged recovery refuses offline stale list and retains note');
   await main(`(()=>{const e=${electron},w=e.BrowserWindow.getAllWindows()[0];for(let i=0;i<5;i++){w.hide();w.show();e.powerMonitor.emit('resume');}return true;})()`);await wait(400);
   check(await page(`homepageReady===true&&calendarFollowToday===true&&!document.querySelector('#aiRecovery').hidden`),'five real hide/show cycles and synthetic resume events preserve page and recovery');

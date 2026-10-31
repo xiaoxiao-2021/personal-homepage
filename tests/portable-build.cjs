@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const {configureRuntime,PREVIEW_PROFILE}=require('../portable-runtime.cjs');
+const {configureRuntime,PREVIEW_PROFILE,isolatedProfile,assertSessionPath}=require('../portable-runtime.cjs');
 const {startupArguments,createLoginItemAdapter}=require('../startup-settings.cjs');
 const {inspectStartupRecord}=require('../startup-record.cjs');
 const {SOURCE_FILES,RUNTIME_FILES,RUNTIME_LOCALES,checkSource}=require('../scripts/build-portable.cjs');
@@ -12,9 +12,10 @@ const plain=fakeApp(true);check(!configureRuntime(plain,{}).preview&&plain.write
 const preview=fakeApp(true);check(configureRuntime(preview,{homepageDistribution:'portable-preview'}).preview,'explicit packaged marker selects preview');
 check(preview.writes.find(([k])=>k==='userData')[1]===path.join(output,PREVIEW_PROFILE),'preview uses distinct fixed profile');
 const test=fakeApp(true);const state=configureRuntime(test,{homepageDistribution:'portable-preview'},{argv:['--personal-homepage-isolated-test'],executable:path.join(output,'fake-bin','个人首页.exe')});
-check(state.isolatedTest&&test.writes.find(([k])=>k==='userData')[1]===path.join(output,'fake-bin','.isolated-test-profile'),'explicit isolated mode keeps data beside test executable');
+check(state.isolatedTest&&test.writes.find(([k])=>k==='userData')[1]===isolatedProfile(path.join(output,'fake-bin','个人首页.exe'),output),'explicit isolated mode uses stable bounded test profile');
 check(test.writes.length===3&&state.appId!=='com.personalhome.desktop','profile, session, logs and shell identity isolated');
 check(!configureRuntime(fakeApp(false),{},{argv:['--personal-homepage-isolated-test']}).isolatedTest,'test flag cannot alter source runtime');
+assert.throws(()=>assertSessionPath('C:\\'+'x'.repeat(210),'win32'));check(true,'unsafe Windows session path is rejected before encryption');
 const exe='C:\\Example User\\个人首页.exe',appPath='C:\\Example User\\resources\\app';
 check(JSON.stringify(startupArguments(appPath,true))===JSON.stringify(['--disable-gpu','--personal-homepage-login']),'packaged argv excludes source app path');
 check(startupArguments(appPath).includes(appPath),'source argv unchanged');

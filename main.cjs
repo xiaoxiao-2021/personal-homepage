@@ -7,7 +7,7 @@ const { promisify } = require('node:util');
 const crypto = require('node:crypto');
 const http = require('node:http');
 const {configureRuntime}=require('./portable-runtime.cjs');
-const runtime=configureRuntime(app,require('./package.json'));
+const runtime=(()=>{try{return configureRuntime(app,require('./package.json'));}catch{dialog.showErrorBox('个人首页暂时无法启动','本机数据目录无法安全使用，或路径过长。请检查目录权限并使用较短的数据路径；原有配置和授权未移动或删除。');app.exit(1);return {};}})();
 // Only the explicit packaged diagnostic mode blocks services; normal app behaviour is unchanged.
 if(runtime.isolatedTest)globalThis.fetch=async()=>{throw new Error('隔离打包测试禁止外部服务请求。');};
 const { validateEntry, launchValidatedEntry } = require('./local-entry.cjs');
@@ -30,7 +30,7 @@ const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.30.3';
+const BUILD_ID = '2026.10.31.1';
 const processStartedAt = process.hrtime.bigint();
 const loginStartupLaunch = !runtime.preview&&process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
@@ -1314,8 +1314,12 @@ app.whenReady().then(async () => {
     if(!win||(win!==mainWindow&&win!==trialWindow))return {ok:false,message:'此窗口无权限。'};
     try{return await handler(...args);}catch{return {ok:false,message:'操作失败，未确认成功，请重试或核对结果。'};}
   };
+  const initialConfig=await readConfig();
+  const guide=require('./startup-guide.cjs').createGuide({fs,path,file:path.join(app.getPath('userData'),'homepage-guide.json'),fresh:!initialConfig.config&&!initialConfig.recovered});
+  ipcMain.handle('guide:state',localAssistant(()=>guide.read()));
+  ipcMain.handle('guide:dismiss',localAssistant(()=>guide.dismiss()));
   ipcMain.handle('codex-quota:read',localAssistant(async force=>({...await quotaService.read(force===true),build:BUILD_ID})));
-  pomodoroSettings=pomodoro.normalizeSettings((await readConfig()).config?.pomodoroSettings);
+  pomodoroSettings=pomodoro.normalizeSettings(initialConfig.config?.pomodoroSettings);
   pomodoroTimer.configure(pomodoroSettings);
   pomodoroInterval=setInterval(()=>pomodoroTimer.snapshot(),1000);
   ipcMain.handle('pomodoro:state',localAssistant(()=>pomodoroTimer.snapshot()));
