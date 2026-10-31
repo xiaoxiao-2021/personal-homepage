@@ -4,7 +4,6 @@
   $('#aiPreviewTitle').textContent='帮你记下来啦';$('#aiCreate').textContent='添加到滴答';$('#aiPreviewClose').textContent='先收好';
   $('#taskPermissionTitle').textContent='启用首页任务写入';
   $('#taskPermissionDialog .modal p').textContent='当前授权可以继续只读使用。仅在你点击授权按钮并在滴答官方页面同意后申请 tasks:read 与 tasks:write；首页支持手动完成任务及检查小项、预览确认后创建单个普通任务，不提供任意编辑或删除任务。小项勾选不提交父任务完成请求。授权失败保留原授权，不自动提交草稿。';
-  $('#settingsDialog .settings-details p').textContent='默认仅申请 tasks:read；明确启用写入时才申请 tasks:write。令牌与 DeepSeek 密钥各自使用 Windows 加密保存，不写入页面状态、布局配置、备份或日志。任务助手只生成草稿；用户确认后创建单个任务。离线不写入、不排队。重复和子任务创建本轮不支持。';
   let generating=false,creating=false,requestEpoch=0,preview=null,completed=null,uncertain=false,privacyAccepted=false,settingsBusy=false,retryInput='';
   const input=$('#aiInput'),messages=$('#aiMessages'),status=$('#aiStatus');
   let recovery=null,recoveryBusy=false;

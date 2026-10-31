@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('homeApi', {
+  helpMetadata:()=>ipcRenderer.invoke('help:metadata'),
+  checkUpdates:()=>ipcRenderer.invoke('help:check'),
+  diagnosticSummary:()=>ipcRenderer.invoke('help:diagnostic'),
+  copyDiagnostic:()=>ipcRenderer.invoke('help:copy'),
+  openHelp:key=>ipcRenderer.invoke('help:open',key),
   guideState:()=>ipcRenderer.invoke('guide:state'),
   dismissGuide:()=>ipcRenderer.invoke('guide:dismiss'),
   codexQuota:force=>ipcRenderer.invoke('codex-quota:read',force===true),

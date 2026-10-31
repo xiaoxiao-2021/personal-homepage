@@ -1,13 +1,13 @@
 {
   "name": "personal-homepage-desktop",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "private": true,
   "description": "Windows personal homepage with a reversible desktop-layer trial",
   "main": "main.cjs",
   "scripts": {
     "build:portable": "node scripts/build-portable.cjs",
     "start": "node_modules\\electron\\dist\\electron.exe .",
-    "check": "node --check main.cjs && node --check preload.cjs && node --check startup-settings.cjs && node --check assistant-drafts.cjs && node --check task-assistant.cjs && node --check dida-check-items.cjs && node --check pomodoro.cjs && node --check codex-quota.cjs && node --check src/codex-quota.js && node --check src/task-view.js && node --check src/unified-search.js && node --check src/renderer.js && node --check src/task-assistant.js && node --check src/pomodoro.js && node --check startup-guide.cjs && node --check src/startup-guide.js"
+    "check": "node --check main.cjs && node --check preload.cjs && node --check startup-settings.cjs && node --check assistant-drafts.cjs && node --check task-assistant.cjs && node --check dida-check-items.cjs && node --check pomodoro.cjs && node --check codex-quota.cjs && node --check src/codex-quota.js && node --check src/task-view.js && node --check src/unified-search.js && node --check src/renderer.js && node --check src/task-assistant.js && node --check src/pomodoro.js && node --check startup-guide.cjs && node --check src/startup-guide.js && node --check app-help.cjs && node --check src/app-help.js"
   },
   "devDependencies": {
     "electron": "^39.8.10"

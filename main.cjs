@@ -30,7 +30,11 @@ const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.31.1';
+const BUILD_ID = '2026.10.31.2';
+const help=require('./app-help.cjs');
+const updateService=help.createService({current:app.getVersion()});
+function helpMetadata(){return {version:app.getVersion(),build:BUILD_ID};}
+function helpDiagnostic(){return help.diagnostic({appVersion:app.getVersion(),build:BUILD_ID,platform:process.platform,arch:process.arch,osVersion:require('node:os').release(),electron:process.versions.electron,chrome:process.versions.chrome,packaged:app.isPackaged,desktop:Boolean(trialAttachment),uptime:process.uptime(),update:updateService.snapshot()});}
 const processStartedAt = process.hrtime.bigint();
 const loginStartupLaunch = !runtime.preview&&process.argv.includes(STARTUP_ARGUMENT);
 const startupAdapter = createLoginItemAdapter({
@@ -1316,6 +1320,15 @@ app.whenReady().then(async () => {
   };
   const initialConfig=await readConfig();
   const guide=require('./startup-guide.cjs').createGuide({fs,path,file:path.join(app.getPath('userData'),'homepage-guide.json'),fresh:!initialConfig.config&&!initialConfig.recovered});
+  const helpHandler=handler=>async(event,...args)=>{
+    if(event.senderFrame!==event.sender.mainFrame)return {ok:false,message:'此页面无权限。'};
+    return localAssistant(handler)(event,...args);
+  };
+  ipcMain.handle('help:metadata',helpHandler(helpMetadata));
+  ipcMain.handle('help:check',helpHandler(()=>runtime.isolatedTest?{state:'error',code:'ISOLATED',checkedAt:null}:updateService.check()));
+  ipcMain.handle('help:diagnostic',helpHandler(()=>({ok:true,text:helpDiagnostic()})));
+  ipcMain.handle('help:copy',helpHandler(()=>{clipboard.writeText(helpDiagnostic());return {ok:true};}));
+  ipcMain.handle('help:open',helpHandler(async key=>{if(!Object.hasOwn(help.LINKS,key))return {ok:false};await shell.openExternal(help.LINKS[key]);return {ok:true};}));
   ipcMain.handle('guide:state',localAssistant(()=>guide.read()));
   ipcMain.handle('guide:dismiss',localAssistant(()=>guide.dismiss()));
   ipcMain.handle('codex-quota:read',localAssistant(async force=>({...await quotaService.read(force===true),build:BUILD_ID})));

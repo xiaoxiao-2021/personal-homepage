@@ -9,6 +9,11 @@ window.addEventListener('error', event => ipcRenderer.send('test:page-error', ev
 window.addEventListener('unhandledrejection', event => ipcRenderer.send('test:page-error', String(event.reason)));
 contextBridge.exposeInMainWorld('testControl', { failNextSave: () => ipcRenderer.invoke('test:fail-save') });
 contextBridge.exposeInMainWorld('homeApi', {
+  helpMetadata:()=>ipcRenderer.invoke('test:help-meta'),
+  checkUpdates:()=>ipcRenderer.invoke('test:help-check'),
+  diagnosticSummary:()=>ipcRenderer.invoke('test:help-diagnostic'),
+  copyDiagnostic:()=>ipcRenderer.invoke('test:help-copy'),
+  openHelp:key=>ipcRenderer.invoke('test:help-open',key),
   guideState:()=>new URLSearchParams(window.location.search).has('guideTest')?ipcRenderer.invoke('test:guide-state'):Promise.resolve({ok:true,show:false}),
   dismissGuide:()=>ipcRenderer.invoke('test:guide-dismiss'),
   codexQuota: force => quotaTest ? ipcRenderer.invoke('test:quota-read',force===true) : Promise.resolve({status:'missing',message:'隔离测试：未连接 Codex。',windows:[],resetCredits:{availableCount:null,expirations:[]},fetchedAt:null,stale:true}),
