@@ -5,7 +5,7 @@ const output=path.resolve(__dirname,'../test-results/unified-search');
 app.setPath('userData',path.join(output,'profile'));app.disableHardwareAcceleration();app.commandLine.appendSwitch('disable-gpu');
 app.on('window-all-closed',()=>{});
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-let win,ready=0,saves=0,icons=0,reads=0,launches=0,writes=0;
+let win,ready=0,saves=0,icons=0,reads=0,launches=0,writes=0,manual=0,failSave=false;
 const errors=[],checks=[];const check=(value,label)=>{assert(value,label);checks.push(label);};
 const dashboard={source:'live',revision:1,projects:[{id:'c',name:'合成临床'},{id:'r',name:'合成科研'},{id:'u',name:'合成其他'}],tasks:[
  {id:'same',projectId:'c',title:'整理临床记录',status:0,dueDate:'2026-11-01',isAllDay:true},
@@ -18,12 +18,16 @@ const dashboard={source:'live',revision:1,projects:[{id:'c',name:'合成临床'}
 const watchdog=setTimeout(()=>app.exit(1),110000);
 async function main(){
  await fs.mkdir(output,{recursive:true});await app.whenReady();
- ipcMain.handle('test:load',()=>({config:null}));ipcMain.handle('test:save',()=>{saves++;return true;});
+ ipcMain.handle('test:load',()=>({config:null}));ipcMain.handle('test:save',()=>{saves++;return !failSave;});
  ipcMain.handle('test:dida-status',()=>{reads++;return {state:'connected',canComplete:true};});
  ipcMain.handle('test:dida-dashboard',()=>{reads++;return dashboard;});
  ipcMain.handle('test:search-icon',()=>{icons++;return {kind:'fallback'};});
  ipcMain.handle('test:launch-entry',()=>{launches++;return {ok:true};});
  ipcMain.handle('test:dida-complete',()=>{writes++;return {ok:false};});ipcMain.handle('test:dida-complete-item',()=>{writes++;return {ok:false};});
+ ipcMain.handle('test:assistant-status',()=>({configured:false}));
+ ipcMain.handle('test:help-meta',()=>({version:'synthetic',build:'synthetic'}));
+ ipcMain.handle('test:assistant-manual-draft',async()=>{manual++;await wait(120);return {ok:true,preview:{id:'synthetic-draft',revision:1,source:'manual',scene:'总览',timeZone:'Asia/Shanghai',projects:[{id:'c',name:'合成清单'}],task:{title:'',projectId:'c',date:'2026-10-31',time:'',dateKind:'due',isAllDay:true,content:''}}};});
+ ipcMain.handle('test:assistant-create',()=>{writes++;return {ok:false};});
  ipcMain.on('test:page-ready',()=>ready++);ipcMain.on('test:page-error',(_e,error)=>errors.push(error));
  win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{preload:path.join(__dirname,'ui-smoke-preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
  win.webContents.on('did-fail-load',(_e,code)=>errors.push('load:'+code));win.webContents.on('render-process-gone',(_e,detail)=>errors.push(detail.reason));
@@ -80,13 +84,35 @@ async function main(){
  const idle={saves,icons,reads,launches};for(let i=0;i<15;i++)await search(i%2?'专用':'整理');
  check(await run(`document.querySelector('#tasks').firstChild===__task&&document.querySelector('#appGrid').firstChild===__grid`),'repeated typing preserves task and entry grid DOM');
  check(saves===idle.saves&&icons===idle.icons&&reads===idle.reads&&launches===idle.launches&&writes===0,'typing triggers zero config writes, extra icon reads, Dida reads/writes or launches');
+ // Fixed quick actions exercise native keyboard/mouse; service endpoints remain synthetic.
+ await key('Escape');await run(`searchInput.value='';`);await key('K',['control']);
+ check(await run(`searchRows.length===8&&searchRows.every(r=>r.kind==='command')&&!searchPanel.hidden`),'blank Ctrl+K opens eight fixed quick actions');
+ await capture('quick-actions');await key('Escape');check(await run(`searchPanel.hidden`),'Escape dismisses action palette');
+ await search('> 设置');await key('Return');check(await run(`document.querySelector('#settingsDialog').open`),'native Enter opens existing settings');
+ await key('K',['control']);check(await run(`document.querySelector('#settingsDialog').open&&searchPanel.hidden`),'Ctrl+K does not escape modal');await key('Escape');
+ await search('> 科研');await key('Return');check(await run(`state.scene===SCENES[2]&&document.activeElement.dataset.scene===SCENES[2]`),'scene command switches and focuses new scene button');
+ await search('> 总览');await key('Return');
+ await run(`state.taskView.dates='all';state.taskViews['总览'].dates='all';renderTasks();`);failSave=true;
+ await search('> 今天');await key('Return');check(await run(`sceneTaskView().dates==='all'&&document.querySelector('#toast').textContent.includes('失败')`),'failed today-filter save preserves prior preference and error');failSave=false;
+ await search('> 今天');await key('Return');check(await run(`sceneTaskView().dates==='today'&&document.activeElement.id==='taskCardTitle'`),'today action uses saved filter and focuses task panel');
+ await click('#editBtn');const protectedCounts={saves,manual};await search('> 新建');await key('Return');
+ check(manual===protectedCounts.manual&&saves===protectedCounts.saves&&await run(`editing&&!document.querySelector('#aiPreviewDialog').open`),'unsaved edit blocks command without draft or config writes');await key('Escape');await click('#cancelEditBtn');
+ await search('> 新建');await key('Return');await until(`document.querySelector('#aiPreviewDialog').open`);
+ check(manual===1&&writes===0&&await run(`!document.querySelector('#aiNoteEditor').hidden&&document.activeElement.id==='aiTitle'`),'new-task opens existing manual note without AI or task creation');
+ await key('Return');check(writes===0,'Enter in note field cannot implicitly create a task');await key('Escape');
+ const actionIdle={saves,reads,icons,manual,writes,launches};
+ await search('> 设置');await run(`searchInput.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true}));`);
+ check(await run(`!document.querySelector('#settingsDialog').open`),'composing Enter never executes action (synthetic IME boundary)');
+ await run(`runSearchCommand('arbitrary-invalid-action')`);await key('Escape');
+ for(let i=0;i<4;i++){await key('K',['control']);await search('>');await key('Escape');}
+ check(JSON.stringify(actionIdle)===JSON.stringify({saves,reads,icons,manual,writes,launches}),'opening filtering closing actions causes no writes, service reads, icon reads or launches');
  for(const theme of ['warm','peach','night']){
-   await run(`state.theme=${JSON.stringify(theme)};renderAppearance()`);await search('专用');await key('Down');await capture(theme);
+   await run(`state.theme=${JSON.stringify(theme)};renderAppearance()`);await search('>');await key('Down');await capture(theme);
    check(await run(`getComputedStyle(document.querySelector('.unified-search')).backgroundColor!=='rgba(0, 0, 0, 0)'&&document.querySelector('[role=option][aria-selected=true]')!==null`),theme+' popup has opaque themed surface and active selection');
  }
  for(const desktop of [false,true]){
   await key('Escape');await win.loadFile(path.resolve(__dirname,'../src/index.html'),{query:{completionTest:'1',searchTest:'1',...(desktop?{desktop:'1'}:{})}});await until(`homepageReady===true&&!refreshInFlight`);
-  for(const width of [1440,900,590,320]){win.setContentSize(width,800);await wait(70);await search('Obsidian');check(await run(`(()=>{const r=document.querySelector('.unified-search').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&document.documentElement.scrollWidth<=innerWidth+1})()`),`${desktop?'desktop CSS':'window'} ${width}px popup contained in viewport`);}
+  for(const width of [1440,900,590,320]){win.setContentSize(width,800);await wait(70);await search('>');check(await run(`(()=>{const r=document.querySelector('.unified-search').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&document.documentElement.scrollWidth<=innerWidth+1})()`),`${desktop?'desktop CSS':'window'} ${width}px popup contained in viewport`);}
  }
  check(errors.length===0,'no load or renderer errors');
  await fs.writeFile(path.join(output,'report.json'),JSON.stringify({pageLoaded:true,passed:checks.length,checks,errors,counts:{saves,icons,reads,launches,writes},scope:'Sandboxed real Electron UI, native mouse and keyboard, synthetic tasks/config/APIs. Desktop CSS only, no native desktop mount, real account, user files or music.'},null,2));

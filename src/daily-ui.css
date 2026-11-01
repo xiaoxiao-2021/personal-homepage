@@ -375,3 +375,44 @@ body.night .unified-search { box-shadow:0 10px 32px rgba(0,0,0,.3); }
 #helpDiagnosticDetails summary{cursor:pointer;font-size:13px}
 #helpDiagnosticText{box-sizing:border-box;width:100%;max-width:100%;resize:vertical;font-size:11px;line-height:1.7;background:var(--solid);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px}
 #helpCopyStatus{color:var(--muted);font-size:11px}
+
+/* Compact task steps and a quiet, accessible note for full task details. */
+.task-title{display:inline;padding:0;border:0;background:transparent;color:inherit;font:inherit;line-height:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer}
+.task-title:hover{color:var(--accent)}
+.task-item-progress{display:inline-block;margin-left:7px;padding:1px 5px;border-radius:5px;background:var(--soft);color:var(--accent);font-size:10px;white-space:nowrap}
+.task-items-toggle{margin:1px 0 3px 30px;padding:3px 5px;border:0;border-radius:5px;background:transparent;color:var(--muted);font:inherit;font-size:11px;text-align:left}
+.task-items-toggle:hover{background:var(--soft);color:var(--accent)}
+.task .subtask[hidden]{display:none!important}
+.task-title:focus-visible,.task-items-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#taskDetailDialog{width:min(520px,calc(100vw - 28px));max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px);padding:0;border:1px solid var(--line);border-radius:20px;background:var(--solid);color:var(--ink);overflow:auto;box-shadow:0 18px 55px #18251e30}
+#taskDetailDialog::backdrop{background:rgba(28,38,32,.25)}
+.task-detail-note{padding:20px 25px 24px;background:linear-gradient(150deg,color-mix(in srgb,var(--soft) 48%,transparent),transparent 48%)}
+.task-detail-heading{display:flex;align-items:center;justify-content:space-between;color:var(--accent);font-size:12px}.task-detail-heading button{font-size:21px;padding:2px 10px}
+.task-detail-note h3{margin:12px 0;font-size:23px;line-height:1.6;overflow-wrap:anywhere}
+.task-detail-note p{line-height:1.8;font-size:13px;overflow-wrap:anywhere}.task-detail-source{color:var(--muted)}
+.task-detail-dates{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 15px;padding:14px 0;border-block:1px solid var(--line);font-size:12px;line-height:1.8}.task-detail-dates dt{color:var(--muted)}.task-detail-dates dd{margin:0;overflow-wrap:anywhere}
+.task-detail-content{white-space:pre-wrap;max-height:230px;overflow:auto}.task-detail-note h4{font-size:13px;margin:20px 0 8px}.task-detail-item{margin:5px 0;color:var(--muted)}.task-detail-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:24px}.task-detail-actions button{font-size:12px}
+@media(prefers-reduced-motion:no-preference){#taskDetailDialog[open]{animation:task-note-appear .16s ease-out}@keyframes task-note-appear{from{opacity:0}to{opacity:1}}}
+
+.task-date-filters{display:flex;gap:4px;flex-wrap:wrap;margin:0 18px 5px}
+.task-date-filters button{border:1px solid transparent;border-radius:8px;padding:5px 8px;background:transparent;color:var(--muted);font:inherit;font-size:11px;white-space:nowrap}
+.task-date-filters button[aria-pressed="true"]{background:var(--soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 25%,transparent)}
+.task-date-filters button:hover:not(:disabled){background:var(--soft)}.task-date-filters button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.task-date-filters button:disabled{cursor:default;opacity:.55}
+.task-filter-summary{margin:0 18px 10px;color:var(--muted);font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+
+/* The focus surface keeps the home DOM, playback and timer alive behind it. */
+#focusViewDialog{width:min(880px,calc(100vw - 32px));max-width:880px;max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);border-radius:24px;background:var(--solid);color:var(--ink);overflow:auto;box-shadow:0 20px 80px #182c2226}
+#focusViewDialog::backdrop{background:var(--solid);opacity:.97}
+.focus-view-shell{padding:28px 36px}.focus-view-header{display:flex;justify-content:space-between;align-items:center;gap:16px;color:var(--muted);font-size:12px}.focus-view-header button{flex:none;font-size:12px}.focus-view-main{max-width:620px;margin:32px auto 12px}.focus-view-main h2{font-size:clamp(22px,3vw,32px);line-height:1.5;overflow-wrap:anywhere;margin:12px 0}.focus-view-main>.sub{line-height:1.8;overflow-wrap:anywhere}.focus-view-clock{text-align:center;padding:24px 0 30px}.focus-view-clock>span{color:var(--accent);font-size:12px}.focus-view-clock strong{display:block;font-size:clamp(52px,9vw,80px);font-variant-numeric:tabular-nums;letter-spacing:-3px;line-height:1.4}.focus-view-clock p{color:var(--muted);font-size:12px}.focus-view-clock button{min-width:88px;margin:6px}.focus-view-steps{border-top:1px solid var(--line);padding:16px 0}.focus-view-steps .subtask{display:flex;align-items:center;gap:12px;margin:0;padding:10px 0;flex-wrap:wrap}.focus-view-steps .check-item-title{flex:1;min-width:0;overflow-wrap:anywhere}.focus-view-steps .task-complete-error{width:100%}.focus-view-notes{padding:12px 0;color:var(--muted);font-size:12px}.focus-view-notes p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}.focus-view-music{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding-top:18px;margin-top:24px;color:var(--muted);font-size:12px}.focus-view-music span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.focus-view-music button{flex:none}
+@media(max-width:540px){.focus-view-shell{padding:20px}.focus-view-header{align-items:flex-start}.focus-view-header>span{max-width:120px;line-height:1.6}.focus-view-main{margin-top:20px}#focusViewDialog{border-radius:18px}}
+
+.focus-view-header{position:sticky;top:0;z-index:2;background:var(--solid);padding:12px 0;border-bottom:1px solid var(--line)}
+
+.focus-view-header{flex-wrap:wrap}.focus-view-header>span{flex:1;min-width:130px}
+
+/* Optional density presets. All entry geometry, content and visibility stay user-owned. */
+#layoutPresetBar{display:flex;align-items:center;gap:10px 18px;flex-wrap:wrap;margin:12px 0;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--solid)}#layoutPresetBar[hidden]{display:none}#layoutPresetBar strong{font-size:13px}#layoutPresetBar small{display:block;font-size:11px;color:var(--muted);margin-top:4px}#layoutPresetBar [role=group]{display:flex;gap:6px}#layoutPresetBar button{min-height:34px;font-size:12px}#layoutPresetBar button[aria-pressed=true]{background:var(--soft);border-color:var(--accent);color:var(--accent)}#layoutPresetHint{margin:0;font-size:11px;color:var(--muted);flex:1 1 240px;line-height:1.7}
+#workspace[data-density=relaxed] .head{padding:18px 20px 14px}#workspace[data-density=relaxed] .task-view-controls{padding-left:20px;padding-right:20px}#workspace[data-density=relaxed] .task-group .task{padding-top:10px;padding-bottom:10px}#workspace[data-density=relaxed] #moduleStack>.module-panel{padding:16px;gap:8px}
+#workspace[data-density=compact] .head{padding:10px 12px 8px}#workspace[data-density=compact] .task-view-controls{padding:0 12px 6px;gap:5px 8px}#workspace[data-density=compact] .task-group summary{padding-top:8px;padding-bottom:6px}#workspace[data-density=compact] #moduleStack>.module-panel{padding:10px;gap:4px}#workspace[data-density=compact] #moduleStack{gap:8px}#workspace[data-density=compact] #moduleTimeNow{font-size:28px}#workspace[data-density=compact] #moduleStack .calendar-grid button{min-height:26px}#workspace[data-density=compact] #moduleStack .calendar-grid{gap:1px 3px}
+body.layout-preset-preview .display-settings,body.layout-preset-preview [data-add],body.layout-preset-preview .remove,body.layout-preset-preview .edit-item{display:none!important}
+@media(max-width:540px){#layoutPresetBar{padding:10px}#layoutPresetBar [role=group]{width:100%}#layoutPresetBar [role=group] button{flex:1}}

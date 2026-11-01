@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('homeApi', {
   guideState:()=>ipcRenderer.invoke('guide:state'),
   dismissGuide:()=>ipcRenderer.invoke('guide:dismiss'),
   codexQuota:force=>ipcRenderer.invoke('codex-quota:read',force===true),
+  showFloatingTimer:()=>ipcRenderer.invoke('pomodoro:float'),
   pomodoroState:()=>ipcRenderer.invoke('pomodoro:state'),
   pomodoroCommand:action=>ipcRenderer.invoke('pomodoro:command',action),
   pomodoroFocusTask:value=>ipcRenderer.invoke('pomodoro:focus-task',value),

@@ -27,4 +27,9 @@ const largeDashboard={...dashboard,tasks:Array.from({length:100},(_,i)=>({id:'x'
 const result=search.query(search.collect(large,largeDashboard,scenes),'测试','总览');
 check(result.total===200&&result.rows.filter(r=>r.kind==='entry').length===60&&result.rows.filter(r=>r.kind==='task').length===60,'bounded groups retain both result types and exact total');
 check(!JSON.stringify(search.collect(config,dashboard,scenes)).includes('https://'),'search index excludes launch targets');
+check(search.commands(scenes).length===6,'blank palette contains only bounded known actions');
+check(search.commands(scenes,'> 新建').map(r=>r.id).join()==='new-task','command prefix filters actions');
+check(search.commands(scenes,'＞ 设置')[0].id==='settings','fullwidth command prefix normalized');
+check(search.commands(scenes,'切换 科研')[0].scene==='科研','scene selection retains exact configured identity');
+check(search.commands(scenes,'rm -rf').length===0,'arbitrary input cannot become an executable action');
 console.log(`PASS ${checks} unified search model checks`);

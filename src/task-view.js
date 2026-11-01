@@ -39,6 +39,18 @@
     const [y,m,d]=key.split('-'),md=`${Number(m)}月${Number(d)}日`,relative=key===today?'今天':key===tomorrowKey?'明天':'';
     return `${relative}${relative?' · ':''}${Number(y)!==Number(today.slice(0,4))?`${y}年`:''}${md}`;
   }
-  root.HomeTaskView={dateKey,zonedDateTime,taskDate,taskFieldDay,taskDay,isOverdue,compareTasks,dayLabel};
+  function shiftDay(day,offset){
+    if(!validCalendarDay(day))return null;
+    const date=new Date(day+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+offset);
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,'0')}-${String(date.getUTCDate()).padStart(2,'0')}`;
+  }
+  function matchesFilter(task,filter,today){
+    const day=taskDay(task);
+    if(filter==='today')return day===today||isOverdue(task,today);
+    if(filter==='week')return Boolean(day&&day!=='invalid'&&day>=today&&day<=shiftDay(today,6));
+    if(filter==='undated')return !task.startDate&&!task.dueDate;
+    return true;
+  }
+  root.HomeTaskView={shiftDay,matchesFilter,dateKey,zonedDateTime,taskDate,taskFieldDay,taskDay,isOverdue,compareTasks,dayLabel};
   if(typeof module!=='undefined'&&module.exports)module.exports=root.HomeTaskView;
 })(globalThis);

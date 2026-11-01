@@ -32,9 +32,19 @@
     const rows=[];for(const group of ['entry','task'])rows.push(...matches.filter(row=>group==='entry'?row.kind==='entry':row.kind!=='entry').slice(0,limit));
     return {rows,total:matches.length};
   }
+  function commands(scenes,value=''){
+    const rows=[
+      {kind:'command',id:'new-task',title:'新建任务',description:'打开手动便签，确认后才添加',keywords:'新建任务 添加任务 记任务 手动便签'},
+      {kind:'command',id:'today',title:'查看今天',description:'当前任务范围的今天与逾期',keywords:'查看今天 今日任务 今天安排'},
+      {kind:'command',id:'settings',title:'打开设置',description:'快捷键、清单关联与应用设置',keywords:'打开设置 设置 偏好'},
+      ...scenes.map((scene,index)=>({kind:'command',id:'scene-'+index,scene,title:'切换'+scene.replace(/[^\u4e00-\u9fff]/g,''),description:'进入 '+scene,keywords:'切换场景 '+scene}))
+    ];
+    const words=normalize(value).replace(/^>/,'').trim().split(/\s+/).filter(Boolean);
+    return rows.filter(row=>words.every(word=>normalize(row.title+' '+row.keywords).includes(word)));
+  }
   function sourceMessage(dashboard){
     return ({live:'搜索已加载的未完成任务与小项',cache:'任务结果来自离线缓存；可能不是最新状态',partial:'部分清单读取失败，搜索范围不完整',none:'滴答未连接，当前仅搜索入口',error:'任务读取失败，当前仅搜索入口',expired:'任务授权已过期，当前仅搜索入口'})[dashboard?.source]||'任务尚未读取，当前仅搜索入口';
   }
-  root.HomeSearch={collect,query,sourceMessage};
+  root.HomeSearch={collect,query,commands,sourceMessage};
   if(typeof module!=='undefined'&&module.exports)module.exports=root.HomeSearch;
 })(globalThis);

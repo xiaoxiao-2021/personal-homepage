@@ -22,15 +22,15 @@ const quotaService=codexQuota.createService({...(runtime.isolatedTest?{reader:as
   appData:app.getPath('appData'),
   localAppData:process.env.LOCALAPPDATA||path.join(path.dirname(app.getPath('appData')),'Local')
 })});
-let pomodoroSettings=pomodoro.normalizeSettings(null),pomodoroSettingsBusy=false,pomodoroInterval=null;
-function publishPomodoro(){const value=pomodoroTimer.snapshot();for(const win of [mainWindow,trialWindow]){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:state',value);}return value;}
+let pomodoroSettings=pomodoro.normalizeSettings(null),pomodoroSettingsBusy=false,pomodoroInterval=null,floatingPomodoro=null;
+function publishPomodoro(){const value=pomodoroTimer.snapshot();for(const win of [mainWindow,trialWindow]){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:state',value);}floatingPomodoro?.update();return value;}
 const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
   const visible=[mainWindow,trialWindow].some(win=>win&&!win.isDestroyed()&&win.isVisible()&&!win.isMinimized());
   if(!visible&&Notification.isSupported())try{const notice=new Notification({title:'个人首页 · 番茄钟',body:phase==='focus'?'本轮专注已完成，回来开始休息吧。':'休息结束，可以开始下一轮专注。',silent:true});notice.on('click',showHomepage);notice.show();}catch{/* Completion remains in timer state if Windows notifications are unavailable. */}
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.10.31.2';
+const BUILD_ID = '2026.11.01.3';
 const help=require('./app-help.cjs');
 const updateService=help.createService({current:app.getVersion()});
 function helpMetadata(){return {version:app.getVersion(),build:BUILD_ID};}
@@ -228,7 +228,7 @@ function startTaskFocus(value){
   const task=latestDidaDashboard?.tasks?.find(t=>t.id===value?.taskId&&t.projectId===value?.projectId&&Number(t.status)===0);
   if(!task)return {ok:false,message:'任务已完成或不在当前列表，请刷新后重试。'};
   const result=pomodoroTimer.focusTask({id:task.id,projectId:task.projectId,title:task.title},{replace:value.replace===true,expectedRevision:value.expectedRevision});
-  if(result.ok)publishPomodoro();return result;
+  if(result.ok){publishPomodoro();if(typeof floatingPomodoro!=='undefined')void floatingPomodoro?.show();}return result;
 }
 async function aiCreate(value) {
   if(aiCreating)return {ok:false,message:'创建正在提交，请等待结果；不会重复发送。'};
@@ -583,6 +583,7 @@ function sanitizeDidaTask(task, fallbackProjectId) {
   })).filter((item) => item.title) : [];
   return {
     id: String(task.id || ''), projectId: String(task.projectId || fallbackProjectId || ''), title: String(task.title || ''),
+    content: typeof task.content==='string'?task.content.slice(0,4000):'', desc: typeof task.desc==='string'?task.desc.slice(0,4000):'',
     dueDate: task.dueDate || null, startDate: task.startDate || null, timeZone: task.timeZone || null,
     isAllDay: Boolean(task.isAllDay), repeatFlag: task.repeatFlag || null, status: task.status ?? 0, checkItems
   };
@@ -1334,7 +1335,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('codex-quota:read',localAssistant(async force=>({...await quotaService.read(force===true),build:BUILD_ID})));
   pomodoroSettings=pomodoro.normalizeSettings(initialConfig.config?.pomodoroSettings);
   pomodoroTimer.configure(pomodoroSettings);
-  pomodoroInterval=setInterval(()=>pomodoroTimer.snapshot(),1000);
+  floatingPomodoro=require('./floating-pomodoro.cjs').createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot:()=>pomodoroTimer.snapshot(),command:action=>{if(pomodoroSettingsBusy)return {ok:false};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};},onHome:showHomepage});
+  pomodoroInterval=setInterval(()=>{pomodoroTimer.snapshot();floatingPomodoro?.update();},1000);
+  ipcMain.handle('pomodoro:float',localAssistant(()=>floatingPomodoro.show()));
   ipcMain.handle('pomodoro:state',localAssistant(()=>pomodoroTimer.snapshot()));
   ipcMain.handle('pomodoro:command',localAssistant(action=>{if(pomodoroSettingsBusy)return {ok:false,message:'正在保存时长，请稍候。'};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};}));
   ipcMain.handle('pomodoro:focus-task',localAssistant(startTaskFocus));
@@ -1449,7 +1452,7 @@ app.whenReady().then(async () => {
   } else createWindow('focus');
 });
 
-app.on('will-quit', () => {quotaService.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
+app.on('will-quit', () => {quotaService.dispose();floatingPomodoro?.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
 app.on('before-quit',(event)=>{
   if(pomodoroSettingsBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'番茄钟设置正在保存或恢复，请完成后再退出。');return;}
   if(aiCreating||aiRecoveryBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'便签正在提交或恢复，请等待结果后再退出。');return;}

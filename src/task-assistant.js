@@ -42,14 +42,16 @@
     const available=Math.floor(innerHeight-column.getBoundingClientRect().top-window.scrollY-16);
     const gap=parseFloat(getComputedStyle(column).gap)||14;
     const height=node=>node.getBoundingClientRect().height;
-    const taskMin=Math.max(280,height(taskCard.querySelector('.head'))+height($('.task-view-controls'))+100);
+    const adaptive=['relaxed','compact'].includes(current().layout.viewportPreset);
+    const preview=window.layoutPresets?.previewing();
+    const taskMin=Math.max(adaptive?220:280,height(taskCard.querySelector('.head'))+height($('.task-view-controls'))+100);
     const hasConversation=messages.childElementCount>0;
     const assistantMin=Math.max(168,height(assistantCard.querySelector('.head'))+height($('.ai-composer'))+height(status)+height(recoveryBar)+height(storageHint)+(hasConversation?44:0));
-    const active=state.assistantLayout?.fitWindow!==false&&!editing&&innerWidth>1100&&!column.hidden&&available>=taskMin+assistantMin+gap;
+    const active=state.assistantLayout?.fitWindow!==false&&(!editing||preview)&&innerWidth>1100&&!column.hidden&&available>=taskMin+assistantMin+gap;
     column.classList.toggle('fit-window',active);
     const rail=$('#moduleCard');
     const railAvailable=Math.floor(innerHeight-rail.getBoundingClientRect().top-window.scrollY-16);
-    const fitRail=!editing&&innerWidth>1100&&!rail.hidden&&railAvailable>=320;
+    const fitRail=(!editing||preview)&&innerWidth>1100&&!rail.hidden&&railAvailable>=320;
     rail.classList.toggle('fit-viewport',fitRail);
     if(fitRail)rail.style.setProperty('--tool-rail-height',`${railAvailable}px`);
     else rail.style.removeProperty('--tool-rail-height');
@@ -58,7 +60,8 @@
       const both=!taskCard.hidden&&!assistantCard.hidden;
       const total=available-(both?gap:0);
       const weight=hasConversation?(({compact:210,medium:230,tall:320})[state.assistantLayout?.height]||230):assistantMin;
-      const taskWeight=({compact:350,medium:470,tall:620})[current().layout.heights.tasks]||470;
+      let taskWeight=({compact:350,medium:470,tall:620})[current().layout.heights.tasks]||470;
+      if(adaptive){const content=[...$('#tasks').children].reduce((sum,node)=>sum+node.getBoundingClientRect().height,0);taskWeight=Math.max(taskMin,Math.min(taskWeight,taskMin+Math.min(180,content)));}
       // Keep the saved task height stable when content changes. Extra space stays
       // outside the cards rather than becoming an empty conversation area.
       // Budget for a short conversation and its recovery action even while idle,
@@ -71,10 +74,12 @@
   }
   function scheduleFit(){if(!fitFrame)fitFrame=requestAnimationFrame(updateFit);}
   window.addEventListener('resize',scheduleFit);
+  const taskContentObserver=new MutationObserver(scheduleFit);taskContentObserver.observe($('#tasks'),{childList:true});
+  $('#tasks').addEventListener('toggle',scheduleFit,true);
   const fitObserver=new ResizeObserver(scheduleFit);
   ['.top','#sceneNav','.summary','.task-view-controls','#taskColumn .task-card .head','#assistantCard .head','.ai-composer','#aiStatus','#moduleStack [data-module="time"]','#moduleStack [data-module="music"]','#moduleStack [data-module="pomodoro"]'].forEach(selector=>{const node=$(selector);if(node)fitObserver.observe(node);});
   [...$('#moduleStack [data-module="calendar"]').children].forEach(node=>fitObserver.observe(node));
-  window.addEventListener('pagehide',()=>{fitObserver.disconnect();window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(fitFrame);},{once:true});
+  window.addEventListener('pagehide',()=>{fitObserver.disconnect();taskContentObserver.disconnect();$('#tasks').removeEventListener('toggle',scheduleFit,true);window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(fitFrame);},{once:true});
   function renderLayout(){
     const setting=state.assistantLayout||{visible:true,height:'medium'};
     $('#assistantCard').hidden=setting.visible===false;

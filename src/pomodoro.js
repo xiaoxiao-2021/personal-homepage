@@ -2,8 +2,8 @@
   const api=window.homeApi,panel=$('#moduleStack [data-module="pomodoro"]');
   let value={phase:'focus',status:'idle',remainingMs:25*60000,settings:{focus:25,break:5},revision:-1},timer=null,flight=false,busy=false,settingsBusy=false,lastMarker='';
   const text=(id,content)=>{const node=$(id);if(node.textContent!==content)node.textContent=content;};
-  function displayed(){return !document.hidden&&!$('#moduleCard').hidden&&!panel.hidden;}
-  function schedule(){clearTimeout(timer);timer=null;if(displayed()&&value.status==='running'&&!busy)timer=setTimeout(refresh,1000);}
+  function displayed(){return !document.hidden&&($('#focusViewDialog')?.open||(!$('#moduleCard').hidden&&!panel.hidden));}
+  function schedule(){window.taskFocusView?.timerChanged(value);clearTimeout(timer);timer=null;if(displayed()&&value.status==='running'&&!busy)timer=setTimeout(refresh,1000);}
   function apply(next){
     if(!next||!['idle','running','paused','completed'].includes(next.status)||next.revision<value.revision)return;
     value=next;const seconds=Math.max(0,Math.ceil(value.remainingMs/1000));
@@ -15,6 +15,7 @@
     text('#pomoStart',value.status==='running'?'暂停':value.status==='paused'?'继续':value.status==='completed'?(value.phase==='focus'?'开始休息':'开始专注'):'开始');
     text('#pomoStatus',({idle:'准备开始',running:'计时中',paused:'已暂停',completed:value.phase==='focus'?'本轮专注已完成':'休息结束'})[value.status]);
     $('#pomoStart').disabled=busy||settingsBusy;$('#pomoReset').disabled=busy||settingsBusy;
+    window.taskFocusView?.timerChanged(value);
     schedule();
   }
   async function refresh(){if(flight||!api.pomodoroState)return;flight=true;try{apply(await api.pomodoroState());}catch{text('#pomoStatus','无法读取计时状态，请重试。');schedule();}finally{flight=false;}}
@@ -31,7 +32,7 @@
         result=await api.pomodoroFocusTask({projectId,taskId,replace:true,expectedRevision:result.state.revision});
       }
       if(!result?.ok){toast(result?.needsConfirm?'计时状态已变化，请重新选择任务。':result?.message||'未能开始专注，请重试。');return;}
-      apply(result.state);toast(panel.hidden||$('#moduleCard').hidden?'专注已在后台开始；可在共用工具中显示番茄钟。':'已开始专注；计时结束后由你手动勾选任务。');
+      apply(result.state);window.taskFocusView?.open(projectId,taskId);toast(panel.hidden||$('#moduleCard').hidden?'专注已在后台开始；可在共用工具中显示番茄钟。':'已开始专注；计时结束后由你手动勾选任务。');
     }catch{toast('未确认专注是否开始，请查看番茄钟后重试。');}
     finally{busy=false;$('#pomoStart').disabled=$('#pomoReset').disabled=false;schedule();}
   }
@@ -52,6 +53,6 @@
   document.addEventListener('visibilitychange',()=>{clearTimeout(timer);if(!document.hidden)void refresh();});
   window.addEventListener('focus',refresh);
   window.addEventListener('pagehide',()=>{clearTimeout(timer);unsubscribe?.();window.removeEventListener('focus',refresh);},{once:true});
-  window.pomodoroUI={busySaving:()=>settingsBusy,focusTask,isTaskSelected:task=>value.task?.id===task.id&&value.task?.projectId===task.projectId,layoutChanged:()=>{if(displayed())void refresh();else schedule();}};
+  window.pomodoroUI={snapshot:()=>value,busySaving:()=>settingsBusy,focusTask,isTaskSelected:task=>value.task?.id===task.id&&value.task?.projectId===task.projectId,layoutChanged:()=>{if(displayed())void refresh();else schedule();}};
   apply(value);void refresh();
 })();

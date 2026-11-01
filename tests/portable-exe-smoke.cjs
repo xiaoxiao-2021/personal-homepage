@@ -18,7 +18,7 @@ const {isolatedProfile}=require('../portable-runtime.cjs');
 const testProfile=()=>isolatedProfile(exe,require('node:os').tmpdir());
 const electron="process.mainModule.require('electron')";
 const main=expression=>client(expression);
-const page=expression=>main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];return await w.webContents.executeJavaScript(${JSON.stringify(expression)},true);})()`);
+const page=expression=>main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/index.html'));return await w.webContents.executeJavaScript(${JSON.stringify(expression)},true);})()`);
 async function launch(locale){
   let endpoint='',stderr='';const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
   child=spawn(exe,['--personal-homepage-isolated-test','--inspect=127.0.0.1:0',...(locale?['--lang='+locale]:[])],{cwd:output,windowsHide:true,env,stdio:['ignore','ignore','pipe']});
@@ -66,6 +66,22 @@ async function quit(){
   await nativeClick('#guideSkip');check(await page(`!document.querySelector('#guideDialog').open`),'native skip closes setup guide');
   check(await page(`(async()=>{const s=await homeApi.startupSettings();return s.state==='preview'&&!s.supported&&!(await homeApi.saveStartupSettings({enabled:true})).ok;})()`),'real startup IPC refuses writes in preview');
   check(await page(`(async()=>{const d=await homeApi.didaStatus();return d.state==='unconnected';})()`),'actual app has no inherited Dida login');
+  await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];w.webContents.sendInputEvent({type:'keyDown',keyCode:'K',modifiers:['control']});w.webContents.sendInputEvent({type:'keyUp',keyCode:'K',modifiers:['control']});return true;})()`);
+  await until(()=>page(`!searchPanel.hidden&&searchRows.length===8`),'packaged Ctrl+K palette');
+  check(await page(`searchRows.every(r=>r.kind==='command')`),'packaged Ctrl+K shows bounded fixed actions');
+  await nativeClick('#search-result-0');await until(()=>page(`!searchCommandBusy`),'manual command settles');
+  check(await page(`!document.querySelector('#aiPreviewDialog').open&&/清单|连接|便签/.test(document.querySelector('#toast').textContent)`),'packaged new-task command explains missing live lists without creating task');
+  await nativeClick('#search');await main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];await w.webContents.insertText('> 设置');return true;})()`);
+  await until(()=>page(`searchRows.length===1&&searchRows[0].id==='settings'`),'packaged settings action');await nativeClick('#search-result-0');
+  check(await page(`document.querySelector('#settingsDialog').open`),'packaged action opens existing settings');
+  await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];w.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});w.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});return true;})()`);
+  await until(()=>page(`!document.querySelector('#settingsDialog').open`),'packaged settings Escape');
+  await nativeClick('#editBtn');await nativeClick('[data-viewport-preset=compact]');
+  check(await page(`editing&&document.querySelector('#workspace').dataset.density==='compact'`),'packaged native compact preset previews before save');await nativeClick('#cancelEditBtn');
+  check(await page(`!editing&&current().layout.viewportPreset==='custom'`),'packaged cancel restores custom preset');
+  await nativeClick('#editBtn');await nativeClick('[data-viewport-preset=compact]');await nativeClick('#editBtn');
+  check(await page(`!editing&&current().layout.viewportPreset==='compact'`),'packaged native save commits preset');
+  await nativeClick('[data-task-date=week]');check(await page(`sceneTaskView().dates==='week'&&document.querySelector('[data-task-date=week]').getAttribute('aria-pressed')==='true'`),'packaged native week filter selects and persists');
   await screenshot('overview');
   await nativeClick('[data-calendar-nav="next"]');check(await page(`calendarFollowToday===false`),'native calendar next enters manual browse');
   await nativeClick('[data-calendar-nav="today"]');check(await page(`calendarFollowToday===true`),'native Today restores follow mode');
@@ -77,6 +93,9 @@ async function quit(){
   await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows()[0];for(const keyCode of ['Down','Return']){w.webContents.sendInputEvent({type:'keyDown',keyCode});w.webContents.sendInputEvent({type:'keyUp',keyCode});}return true;})()`);await until(()=>page(`!!searchTaskLocation`),'native packaged keyboard task location');
   check(await page(`document.querySelector('#tasks .search-hit')?.dataset.searchItem==='search-item'&&document.querySelector('#taskRange').disabled`),'packaged native keyboard locates exact small item in temporary view');
   await nativeClick('#searchLocationBack');check(await page(`!searchTaskLocation&&!document.querySelector('#taskRange').disabled`),'packaged return restores normal task view');
+  await page(`taskFocusView.open('search-list','search-task');true`);
+  check(await page(`document.querySelector('#focusViewDialog').open&&document.querySelector('#focusViewTitle').textContent==='合成搜索父任务'&&document.querySelectorAll('#focusViewSteps .check-item').length===1&&document.querySelector('#focusViewComplete').disabled`),'packaged focus surface renders synthetic cached task with completion blocked');
+  await nativeClick('#focusViewClose');check(await page(`!document.querySelector('#focusViewDialog').open`),'packaged native return closes focus surface');
   await page(`didaDashboard=__searchPreviousDashboard;searchInput.value='';closeSearch();render();true`);
   await nativeClick('#editBtn');check(await page(`editing===true`),'native edit button enters edit mode');
   const before=await page(`state.tools.musicCollapsed`);await page(`state.tools.musicCollapsed=${!before};renderModules();true`);
@@ -137,7 +156,12 @@ async function quit(){
   check(await page(`(async()=>{return !(await homeApi.assistantSession()).recovery&&document.querySelector('#aiRecovery').hidden;})()`),'native discard clears real main recovery state');
   check(await main(`(()=>{const e=${electron},fs=process.mainModule.require('node:fs'),p=process.mainModule.require('node:path');return !fs.existsSync(p.join(e.app.getPath('userData'),'assistant-draft.bin'));})()`),'native discard removes encrypted copy on isolated disk');
   await quit();
-  await launch();check(await page(`(async()=>{return !(await homeApi.assistantSession()).recovery&&document.querySelector('#aiRecovery').hidden;})()`),'discard survives a second full process restart');await quit();
+  await launch();check(await page(`state.taskViews['总览'].dates==='week'`),'week filter preference survives full executable process restart');check(await page(`state.scenes['总览'].layout.viewportPreset==='compact'&&document.querySelector('#workspace').dataset.density==='compact'`),'compact preset survives actual executable restart');check(await page(`(async()=>{return !(await homeApi.assistantSession()).recovery&&document.querySelector('#aiRecovery').hidden;})()`),'discard survives a second full process restart');
+  check(await page(`(async()=>{const r=await homeApi.showFloatingTimer();return r.ok;})()`),'actual home IPC loads bundled floating window');
+  check(await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('floating-timer.html'));return w&&w.isAlwaysOnTop()&&w.isVisible();})()`),'actual packaged floating window is visible and topmost');
+  check(await main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('floating-timer.html'));return await w.webContents.executeJavaScript("typeof floatingTimer==='object'&&typeof homeApi==='undefined'&&document.getElementById('time').textContent==='25:00'");})()`),'actual floating preload and script load with restricted bridge');
+  await quit();
+
   await fs.writeFile(path.join(output,'exe-report.json'),JSON.stringify({passed:checks.length,checks,errors,localeProbe,stability,scope:'Actual ZIP extracted to a Unicode/space directory, relocated packaged exe, sandboxed actual preload/main, native mouse buttons plus synthetic draft mutation, isolated disk save and process restart. External services blocked. Non-bundled --lang launch tested; no assertion that Windows language changed. No real Dida/DeepSeek/Codex, startup writes, desktop mounting, audio playback, Windows DPI or publisher signing acceptance.'},null,2));console.log(`PASS ${checks.length} real packaged-exe checks.`);
 })().catch(async error=>{
   errors.push(error.message);if(client)try{await main(`${electron}.app.exit(1)`);}catch{}if(socket)socket.close();

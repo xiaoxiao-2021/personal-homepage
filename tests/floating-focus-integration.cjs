@@ -1,0 +1,13 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(require('node:path').join(__dirname,'../main.cjs'),'utf8');let shown=0,published=0;
+const timer=require('../pomodoro.cjs').createTimer();
+const context={pomodoroSettingsBusy:false,pomodoroTimer:timer,latestDidaDashboard:{tasks:[{projectId:'p',id:'a',title:'合成任务 A',status:0},{projectId:'p',id:'b',title:'合成任务 B',status:0}]},publishPomodoro:()=>published++,floatingPomodoro:{show:()=>{shown++;return Promise.resolve({ok:true});}}};
+vm.createContext(context);vm.runInContext(source.slice(source.indexOf('function startTaskFocus('),source.indexOf('async function aiCreate(')),context);
+assert(context.startTaskFocus({projectId:'p',taskId:'a'}).ok);assert.equal(shown,1);assert.equal(timer.snapshot().task.id,'a');
+assert(context.startTaskFocus({projectId:'p',taskId:'a'}).ok);assert.equal(shown,2);
+const change=context.startTaskFocus({projectId:'p',taskId:'b'});assert(change.needsConfirm);assert.equal(shown,2);
+assert(context.startTaskFocus({projectId:'p',taskId:'b',replace:true,expectedRevision:change.state.revision}).ok);assert.equal(shown,3);assert.equal(timer.snapshot().task.id,'b');
+assert(!context.startTaskFocus({projectId:'p',taskId:'missing'}).ok);assert.equal(shown,3);
+context.pomodoroSettingsBusy=true;assert(!context.startTaskFocus({projectId:'p',taskId:'a'}).ok);assert.equal(shown,3);assert.equal(published,3);
+console.log('PASS 6 task-to-floating integration checks (actual main helper, synthetic tasks).');

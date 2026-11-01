@@ -24,7 +24,7 @@ function normalizeTools(saved, fallback) {
   };
 }
 function toolsNeedMigration(config){const source=config?.tools;return !source||Number(source.version)<4||!['theme','green','mist','brown'].includes(source.accent)||!['12','24'].includes(String(source.clockFormat))||!['standard','large'].includes(source.clockSize)||!['standard','compact'].includes(source.calendarDensity);}
-function defaultLayout(focus='normal', heightMode='content', preset='standard') { return { order:['tasks','apps','side'], focus, heights:{tasks:heightMode,apps:heightMode,side:heightMode}, entrySize:'medium', spacing:'comfortable', entryStyle:'tiles', showUnsetEntries:true, modules:moduleDefaults(preset) }; }
+function defaultLayout(focus='normal', heightMode='content', preset='standard') { return { viewportPreset:'custom',order:['tasks','apps','side'], focus, heights:{tasks:heightMode,apps:heightMode,side:heightMode}, entrySize:'medium', spacing:'comfortable', entryStyle:'tiles', showUnsetEntries:true, modules:moduleDefaults(preset) }; }
 function defaultTaskView() { return { range:'scene', dates:'all', inboxProjectId:'' }; }
 function defaultTaskViews() { return Object.fromEntries(SCENES.map((scene)=>[scene,defaultTaskView()])); }
 const defaults = {
@@ -61,6 +61,8 @@ let dida = { state:'unconnected', message:'尚未连接滴答清单。', capabil
 let didaDashboard = null;
 const taskCompletionPending = new Set();
 const taskCompletionErrors = new Map();
+const expandedTaskItems = new Set();
+let detailTaskKey = null;
 let completionConfirmTask = null;
 function applyDidaDashboard(value) {
   if (value && Number(value.revision || 0) < Number(didaDashboard?.revision || 0)) return;
@@ -93,6 +95,7 @@ async function submitCheckItemCompletion(task,item){
   const parentKey=JSON.stringify([task.projectId,task.id]),key=JSON.stringify([task.projectId,task.id,item.id]);
   if(editing||layoutSaveInFlight||taskCompletionPending.has(parentKey)||Number(item.status)!==0)return;
   if(!dida.canComplete){openCompletionPermission();return;}
+  expandedTaskItems.add(parentKey);
   taskCompletionPending.add(parentKey);taskCompletionErrors.delete(key);renderTasks({preserveScroll:true});
   try{
     const occurrence=JSON.stringify([task.id,task.projectId,task.dueDate||null,task.startDate||null,task.repeatFlag||null]);
@@ -124,7 +127,7 @@ function toast(text) { const node=$('#toast'); node.textContent=text; node.class
 function recordUiTiming(key,startedAt){uiTimings[key]=Math.round((performance.now()-startedAt)*10)/10;}
 function validConfig(config) { return config && typeof config==='object' && config.version===1 && config.library && config.scenes && SCENES.every(scene=>config.scenes[scene]); }
 function normalizeModules(saved, scene) { const fallback=moduleDefaults(scene==='🏠 生活'?'life':'standard'); const source=saved&&typeof saved==='object'?saved:{}; const visible={...fallback.visible,...(source.visible||{})}; const order=Array.isArray(source.order)?source.order.filter((key,index,array)=>Object.prototype.hasOwnProperty.call(fallback.visible,key)&&array.indexOf(key)===index):fallback.order.slice(); for(const key of Object.keys(fallback.visible))if(!order.includes(key))order.push(key); const sizes={...fallback.sizes,...(source.sizes||{})}; for(const key of Object.keys(sizes))if(!['compact','medium','large'].includes(sizes[key]))sizes[key]='medium'; return {visible,order,sizes}; }
-function normalize(config) { if(!validConfig(config))return clone(defaults);const normalized=clone(config);normalized.theme=['warm','peach','night'].includes(normalized.theme)?normalized.theme:defaults.theme;const source=normalized.appearance&&typeof normalized.appearance==='object'?normalized.appearance:{};normalized.appearance={...clone(defaults.appearance),...source};if(!['clear','frosted','transparent'].includes(normalized.appearance.glass))normalized.appearance.glass=defaults.appearance.glass;if(!['cover','contain'].includes(normalized.appearance.fit))normalized.appearance.fit=defaults.appearance.fit;if(!['center','top','bottom'].includes(normalized.appearance.position))normalized.appearance.position=defaults.appearance.position;if(!['smooth','full'].includes(normalized.appearance.renderQuality))normalized.appearance.renderQuality='smooth';normalized.appearance.dim=Math.max(0,Math.min(35,Number(normalized.appearance.dim)||0));normalized.appearance.wallpaper=typeof normalized.appearance.wallpaper==='string'?normalized.appearance.wallpaper:'';normalized.taskView={...clone(defaults.taskView),...(normalized.taskView||{})};if(!['scene','inbox'].includes(normalized.taskView.range))normalized.taskView.range='scene';if(!['all','today'].includes(normalized.taskView.dates))normalized.taskView.dates='all';normalized.taskView.inboxProjectId=typeof normalized.taskView.inboxProjectId==='string'?normalized.taskView.inboxProjectId:'';const legacyView=clone(normalized.taskView);const savedTaskViews=normalized.taskViews&&typeof normalized.taskViews==='object'?normalized.taskViews:{};normalized.taskViews={};for(const scene of SCENES){const savedView=savedTaskViews[scene]&&typeof savedTaskViews[scene]==='object'?savedTaskViews[scene]:scene==='总览'?legacyView:{range:'scene',dates:legacyView.dates,inboxProjectId:''};const view={...clone(defaultTaskView()),...savedView};if(!['scene','inbox'].includes(view.range))view.range='scene';if(!['all','today'].includes(view.dates))view.dates='all';view.inboxProjectId=typeof view.inboxProjectId==='string'?view.inboxProjectId:'';normalized.taskViews[scene]=view;}normalized.taskView=clone(normalized.taskViews['总览']);for(const scene of SCENES){const fallback=defaultLayout(defaults.scenes[scene].layout.focus,'medium');const saved=normalized.scenes[scene].layout&&typeof normalized.scenes[scene].layout==='object'?normalized.scenes[scene].layout:{};const order=Array.isArray(saved.order)?saved.order.filter((key,index,array)=>['tasks','apps','side'].includes(key)&&array.indexOf(key)===index):fallback.order;normalized.scenes[scene].layout={...fallback,...saved,order:order.length===3?order:fallback.order.slice(),focus:['normal','tasks','apps','side'].includes(saved.focus)?saved.focus:fallback.focus,heights:{...fallback.heights,...(saved.heights||{})},entrySize:['small','medium','large'].includes(saved.entrySize)?saved.entrySize:fallback.entrySize,spacing:['tight','comfortable','spacious'].includes(saved.spacing)?saved.spacing:fallback.spacing,entryStyle:['tiles','compact'].includes(saved.entryStyle)?saved.entryStyle:fallback.entryStyle,showUnsetEntries:typeof saved.showUnsetEntries==='boolean'?saved.showUnsetEntries:fallback.showUnsetEntries};for(const card of ['tasks','apps','side'])if(!['content','compact','medium','tall'].includes(normalized.scenes[scene].layout.heights[card]))normalized.scenes[scene].layout.heights[card]='medium';}return normalized; }
+function normalize(config) { if(!validConfig(config))return clone(defaults);const normalized=clone(config);normalized.theme=['warm','peach','night'].includes(normalized.theme)?normalized.theme:defaults.theme;const source=normalized.appearance&&typeof normalized.appearance==='object'?normalized.appearance:{};normalized.appearance={...clone(defaults.appearance),...source};if(!['clear','frosted','transparent'].includes(normalized.appearance.glass))normalized.appearance.glass=defaults.appearance.glass;if(!['cover','contain'].includes(normalized.appearance.fit))normalized.appearance.fit=defaults.appearance.fit;if(!['center','top','bottom'].includes(normalized.appearance.position))normalized.appearance.position=defaults.appearance.position;if(!['smooth','full'].includes(normalized.appearance.renderQuality))normalized.appearance.renderQuality='smooth';normalized.appearance.dim=Math.max(0,Math.min(35,Number(normalized.appearance.dim)||0));normalized.appearance.wallpaper=typeof normalized.appearance.wallpaper==='string'?normalized.appearance.wallpaper:'';normalized.taskView={...clone(defaults.taskView),...(normalized.taskView||{})};if(!['scene','inbox'].includes(normalized.taskView.range))normalized.taskView.range='scene';if(!['all','today','week','undated'].includes(normalized.taskView.dates))normalized.taskView.dates='all';normalized.taskView.inboxProjectId=typeof normalized.taskView.inboxProjectId==='string'?normalized.taskView.inboxProjectId:'';const legacyView=clone(normalized.taskView);const savedTaskViews=normalized.taskViews&&typeof normalized.taskViews==='object'?normalized.taskViews:{};normalized.taskViews={};for(const scene of SCENES){const savedView=savedTaskViews[scene]&&typeof savedTaskViews[scene]==='object'?savedTaskViews[scene]:scene==='总览'?legacyView:{range:'scene',dates:legacyView.dates,inboxProjectId:''};const view={...clone(defaultTaskView()),...savedView};if(!['scene','inbox'].includes(view.range))view.range='scene';if(!['all','today','week','undated'].includes(view.dates))view.dates='all';view.inboxProjectId=typeof view.inboxProjectId==='string'?view.inboxProjectId:'';normalized.taskViews[scene]=view;}normalized.taskView=clone(normalized.taskViews['总览']);for(const scene of SCENES){const fallback=defaultLayout(defaults.scenes[scene].layout.focus,'medium');const saved=normalized.scenes[scene].layout&&typeof normalized.scenes[scene].layout==='object'?normalized.scenes[scene].layout:{};const order=Array.isArray(saved.order)?saved.order.filter((key,index,array)=>['tasks','apps','side'].includes(key)&&array.indexOf(key)===index):fallback.order;normalized.scenes[scene].layout={...fallback,...saved,order:order.length===3?order:fallback.order.slice(),focus:['normal','tasks','apps','side'].includes(saved.focus)?saved.focus:fallback.focus,heights:{...fallback.heights,...(saved.heights||{})},entrySize:['small','medium','large'].includes(saved.entrySize)?saved.entrySize:fallback.entrySize,spacing:['tight','comfortable','spacious'].includes(saved.spacing)?saved.spacing:fallback.spacing,viewportPreset:['relaxed','compact'].includes(saved.viewportPreset)?saved.viewportPreset:'custom',entryStyle:['tiles','compact'].includes(saved.entryStyle)?saved.entryStyle:fallback.entryStyle,showUnsetEntries:typeof saved.showUnsetEntries==='boolean'?saved.showUnsetEntries:fallback.showUnsetEntries};for(const card of ['tasks','apps','side'])if(!['content','compact','medium','tall'].includes(normalized.scenes[scene].layout.heights[card]))normalized.scenes[scene].layout.heights[card]='medium';}return normalized; }
 function current() { return state.scenes[state.scene]; }
 function normalizeWithModules(config) { const normalized=normalize(config); normalized.music={...clone(defaults.music),...(normalized.music||{})}; normalized.music.tracks=Array.isArray(normalized.music.tracks)?normalized.music.tracks.filter(track=>track&&typeof track.id==='string'&&typeof track.target==='string').map(track=>({...track,name:String(track.name||track.target.split(/[\\/]/).pop()),target:String(track.target)})):[]; normalized.music.volume=Math.max(0,Math.min(1,Number(normalized.music.volume)||0)); normalized.music.lastTrackId=typeof normalized.music.lastTrackId==='string'?normalized.music.lastTrackId:''; normalized.music.lastTime=Math.max(0,Number(normalized.music.lastTime)||0); for(const scene of SCENES){const layout=normalized.scenes[scene].layout;const hadModules=Boolean(config?.scenes?.[scene]?.layout?.modules);layout.modules=normalizeModules(layout.modules,scene);if(scene==='🏠 生活'&&!hadModules){layout.modules=normalizeModules(moduleDefaults('life'),scene);layout.modulesMigrated=true;}/* Keep the three primary columns consistent across scenes. Older builds used focus-apps/focus-side to resize the task card. */layout.focus='normal';} return normalized; }
 function normalizeConfigWithTools(config) {
@@ -190,6 +193,34 @@ function dateKey(value, allDay) { return HomeTaskView.dateKey(value,allDay); }
 function todayKey(){return dateKey(new Date().toISOString(),false);}
 function groupForProject(projectId){return DIDA_GROUPS.find((group)=>state.didaListIds?.[group.key]===projectId)||null;}
 function taskDate(task){return HomeTaskView.taskDate(task);}
+function taskDetailDate(task,field){
+  const value=task[field];if(!value)return '未设置';
+  const day=HomeTaskView.taskFieldDay(task,field);
+  if(!day||day==='invalid')return '日期待确认';
+  if(task.isAllDay)return `${day} · 全天`;
+  const parsed=new Date(value);if(Number.isNaN(parsed.valueOf()))return '日期待确认';
+  return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed)+'（北京时间）';
+}
+function refreshTaskDetail(){
+  const dialog=$('#taskDetailDialog');if(!dialog.open||!detailTaskKey)return;
+  const task=(didaDashboard?.tasks||[]).find(item=>JSON.stringify([item.projectId,item.id])===detailTaskKey);
+  const body=$('#taskDetailBody');body.replaceChildren();
+  $('#taskDetailComplete').disabled=!task||editing||layoutSaveInFlight||taskCompletionPending.has(detailTaskKey)||!['live','partial'].includes(didaDashboard?.source)||['expired','authorizing'].includes(dida.state)||(didaDashboard?.source==='partial'&&(!Array.isArray(didaDashboard.failedProjectIds)||didaDashboard.failedProjectIds.includes(task.projectId)));
+  $('#taskDetailFocus').disabled=!task||editing||layoutSaveInFlight;
+  if(!task){$('#taskDetailTitle').textContent='这件事已更新';body.append(make('p','','任务已完成，或暂时不在当前同步结果中。'));return;}
+  $('#taskDetailTitle').textContent=task.title;
+  const project=task.__projectName||(didaDashboard.projects||[]).find(item=>item.id===task.projectId)?.name||'未命名清单';
+  body.append(make('p','task-detail-source',`${project} · ${taskSourceLabel(didaDashboard.source)}`));
+  const dates=make('dl','task-detail-dates');for(const [label,field] of [['开始日期','startDate'],['到期日期','dueDate']])dates.append(make('dt','',label),make('dd','',taskDetailDate(task,field)));body.append(dates);
+  const content=task.content||task.desc||task.description;
+  body.append(make('p','task-detail-content',content||'暂时没有备注，留一点空白也很好。'));
+  const items=Array.isArray(task.checkItems)?task.checkItems:(task.subtasks||[]);
+  if(items.length){body.append(make('h4','','这件事里的小步骤'));for(const item of items)body.append(make('p','task-detail-item',`${Number(item.status)===(Array.isArray(task.checkItems)?1:2)?'✓':'○'} ${item.title}`));}
+}
+function openTaskDetail(task){
+  if(editing||layoutSaveInFlight)return;
+  detailTaskKey=JSON.stringify([task.projectId,task.id]);$('#taskDetailDialog').showModal();refreshTaskDetail();
+}
 function taskView(task,projectName=new Map()) {
   const overdue=HomeTaskView.isOverdue(task,todayKey());
   const node=make('div',`task ${overdue?'task-overdue':''}`),key=JSON.stringify([task.projectId,task.id]);
@@ -200,15 +231,24 @@ function taskView(task,projectName=new Map()) {
   mark.disabled=editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
   mark.title=taskCompletionPending.has(key)?'正在同步完成…':!live?'请联网刷新后再完成任务':!dida.canComplete?'点击了解如何启用完成任务':'同步完成此任务';
   mark.onclick=()=>requestTaskCompletion(task);node.append(mark);
-  const text=make('span','task-body');text.append(make('span','',task.title));const notes=[];if(overdue)notes.push('逾期');if(task.repeatFlag)notes.push('重复');const scheduled=taskDate(task);if(!task.isAllDay&&scheduled){const parsed=new Date(scheduled);if(!Number.isNaN(parsed.valueOf()))notes.push(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed));}if(task.startDate&&!task.dueDate)notes.push(`开始于 ${formatTaskDay(HomeTaskView.taskFieldDay(task,'startDate'))}`);if(notes.length)text.append(make('small','',notes.join(' · ')));
+  const text=make('span','task-body');const title=make('button','task-title',task.title);title.type='button';title.setAttribute('aria-label',`查看任务详情：${task.title}`);title.disabled=editing||layoutSaveInFlight;title.onclick=()=>openTaskDetail(task);text.append(title);const notes=[];if(overdue)notes.push('逾期');if(task.repeatFlag)notes.push('重复');const scheduled=taskDate(task);if(!task.isAllDay&&scheduled){const parsed=new Date(scheduled);if(!Number.isNaN(parsed.valueOf()))notes.push(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(parsed));}if(task.startDate&&!task.dueDate)notes.push(`开始于 ${formatTaskDay(HomeTaskView.taskFieldDay(task,'startDate'))}`);if(notes.length)text.append(make('small','',notes.join(' · ')));
   if(taskCompletionErrors.has(key)){const error=make('small','task-complete-error',taskCompletionErrors.get(key));error.setAttribute('role','alert');text.append(error);}
   node.append(text);const listName=task.__projectName||projectName.get(task.projectId);if(listName)node.append(make('small','task-list-name',listName));
   const focus=make('button','task-focus');focus.type='button';focus.dataset.focusTask=task.id;focus.dataset.focusProject=task.projectId;
   focus.setAttribute('aria-label',`专注任务：${task.title}`);focus.title='为这件事开始一轮专注（不更改滴答任务）';focus.setAttribute('aria-pressed',String(Boolean(window.pomodoroUI?.isTaskSelected(task))));
   focus.disabled=editing||layoutSaveInFlight;focus.innerHTML='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="m7 5 8 5-8 5Z"/></svg>';
   focus.onclick=()=>window.pomodoroUI?.focusTask(task.projectId,task.id);node.append(focus);
+  const items=Array.isArray(task.checkItems)?task.checkItems:(task.subtasks||[]);
+  const doneStatus=Array.isArray(task.checkItems)?1:2;
+  const completed=items.filter(item=>Number(item.status)===doneStatus).length;
+  const expanded=expandedTaskItems.has(key);
+  const preview=items.filter(item=>Number(item.status)!==doneStatus).slice(0,2);
+  const forced=searchTaskLocation?.projectId===task.projectId&&searchTaskLocation?.taskId===task.id&&searchTaskLocation.kind==='subtask';
+  const isVisible=item=>expanded||forced||preview.includes(item)||taskCompletionErrors.has(JSON.stringify([task.projectId,task.id,item.id]));
+  if(items.length){const progress=make('span','task-item-progress',`${completed}/${items.length}`);progress.setAttribute('aria-label',`小项已完成 ${completed}，共 ${items.length} 项`);text.append(progress);}
   if(Array.isArray(task.checkItems))for(const item of task.checkItems){
     const done=Number(item.status)===1,row=make('div',`subtask check-item${done?' is-completed':''}`),button=make('button','task-complete check-item-complete',done?'✓':taskCompletionPending.has(key)?'…':'');
+    row.hidden=!isVisible(item);
     row.dataset.searchItem=String(item.id||'');row.dataset.searchItemIndex=String(task.checkItems.indexOf(item));
     button.type='button';button.dataset.checkItemId=item.id;button.dataset.parentTaskId=task.id;button.setAttribute('role','checkbox');button.setAttribute('aria-checked',String(done));button.setAttribute('aria-label',`${done?'已完成小项':'完成小项'}：${item.title}（${task.title}）`);
     button.disabled=done||Number(item.status)!==0||!item.id||editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
@@ -218,7 +258,11 @@ function taskView(task,projectName=new Map()) {
     const error=taskCompletionErrors.get(JSON.stringify([task.projectId,task.id,item.id]));if(error){const message=make('small','task-complete-error',error);message.setAttribute('role','alert');row.append(message);}
     node.append(row);
   }
-  else (task.subtasks||[]).forEach((item,index)=>{if(Number(item.status)===2)return;const row=make('div','subtask',`↳ ${item.title}`);row.dataset.searchItem=String(item.id||'');row.dataset.searchItemIndex=String(index);node.append(row);});
+  else (task.subtasks||[]).forEach((item,index)=>{const row=make('div','subtask',`${Number(item.status)===2?'✓':'↳'} ${item.title}`);row.hidden=!isVisible(item);row.dataset.searchItem=String(item.id||'');row.dataset.searchItemIndex=String(index);node.append(row);});
+  if(items.length&&(expanded||forced||items.some(item=>!isVisible(item)))){
+    const toggle=make('button','task-items-toggle',expanded||forced?'收起小步骤':`展开其余 ${items.filter(item=>!isVisible(item)).length} 项`);toggle.type='button';toggle.setAttribute('aria-expanded',String(expanded||forced));
+    toggle.onclick=()=>{if(expanded||forced){expandedTaskItems.delete(key);if(forced)searchTaskLocation={...searchTaskLocation,kind:'task'};}else expandedTaskItems.add(key);renderTasks({preserveScroll:true});const next=[...$('#tasks').querySelectorAll('[data-search-task]')].find(item=>item.dataset.searchTask===key)?.querySelector('.task-items-toggle');next?.focus({preventScroll:true});};node.append(toggle);
+  }
   return node;
 }
 function taskGroup(title,tasks,emptyLabel='今天暂无任务',emptyTone=''){
@@ -239,23 +283,37 @@ function renderInboxProject(projects,view=sceneTaskView()){
   if(view.inboxProjectId&&!known){const stale=make('option','','已选清单暂未读取到');stale.value=view.inboxProjectId;select.append(stale);}
   select.value=view.inboxProjectId||'';select.hidden=view.range!=='inbox';select.title='请选择要显示的指定清单；首页仅保存并使用该清单 ID。';
 }
+function renderDateFilters(view,projects){
+  const ids=taskProjectsForView(projects,view),source=didaDashboard?.source;
+  const unavailable=!didaDashboard||!['live','cache','partial'].includes(source)||!ids.length||ids.some(id=>!projects.some(project=>project.id===id))||(source==='partial'&&(!Array.isArray(didaDashboard.failedProjectIds)||!didaDashboard.failedProjectIds.length||ids.some(id=>didaDashboard.failedProjectIds.includes(id))));
+  const tasks=(didaDashboard?.tasks||[]).filter(task=>Number(task.status)!==2&&ids.includes(task.projectId));
+  const labels={today:'今天',week:'近7天',undated:'未安排',all:'全部'},today=todayKey();
+  for(const button of $('#taskDateFilters').children){
+    const filter=button.dataset.taskDate;button.disabled=Boolean(searchTaskLocation)||taskViewSaveInFlight||editing||layoutSaveInFlight;
+    button.setAttribute('aria-pressed',String(filter===view.dates));button.textContent=`${labels[filter]} ${unavailable?'—':tasks.filter(task=>HomeTaskView.matchesFilter(task,filter,today)).length}`;
+  }
+  const descriptions={today:'今天与逾期任务分组显示',week:`${today} 至 ${HomeTaskView.shiftDay(today,6)}（含今天，共7天）`,undated:'没有开始日期和到期日期的任务',all:'全部未完成任务'};
+  $('#taskFilterSummary').textContent=searchTaskLocation?'搜索定位期间临时显示全部日期':`${descriptions[view.dates]||descriptions.all}${source==='cache'?' · 离线缓存':source==='partial'?' · 部分同步，计数可能不完整':''}`;
+}
 async function saveTaskView(change){
   if(editing){toast('请先保存或取消布局编辑，再切换任务视图。');return;}
   if(taskViewSaveInFlight){toast('任务视图正在保存，请稍候。');return;}
-  taskViewSaveInFlight=true;$('#taskRange').disabled=true;$('#taskDates').disabled=true;$('#inboxProject').disabled=true;
+  taskViewSaveInFlight=true;renderDateFilters(sceneTaskView(),didaDashboard?.projects||[]);$('#taskRange').disabled=true;$('#taskDates').disabled=true;$('#inboxProject').disabled=true;
   const scene=state.scene;const before=clone(sceneTaskView(scene));state.taskViews=state.taskViews||{};state.taskViews[scene]={...before,...change};if(scene==='总览')state.taskView=clone(state.taskViews[scene]);
   try{const saved=clone(state);if(await window.homeApi.saveConfig(saved)===false)throw new Error('save failed');renderTasks();toast(`${scene}任务视图已保存。`);}
   catch{state.taskViews[scene]=before;if(scene==='总览')state.taskView=clone(before);$('#taskRange').value=before.range;$('#taskDates').value=before.dates;$('#inboxProject').value=before.inboxProjectId||'';renderTasks();toast('任务视图保存失败，已恢复之前的选择。');}
   finally{taskViewSaveInFlight=false;$('#taskRange').disabled=false;$('#taskDates').disabled=false;$('#inboxProject').disabled=false;renderTasks();}
 }
 function renderTasks({preserveScroll=false}={}) {
+  refreshTaskDetail();window.taskFocusView?.refresh();
   const host=$('#tasks'),previousScroll=preserveScroll?host.scrollTop:0;host.replaceChildren();
   const view=searchTaskLocation?{range:'inbox',dates:'all',inboxProjectId:searchTaskLocation.projectId}:sceneTaskView(),projects=didaDashboard?.projects||[],projectName=new Map(projects.map(project=>[project.id,project.name]));
   $('#searchLocation').hidden=!searchTaskLocation;
   $('#searchLocationText').textContent=searchTaskLocation?'搜索定位 · 临时显示所在清单':'';
   for(const id of ['taskRange','taskDates','inboxProject'])$('#'+id).disabled=Boolean(searchTaskLocation)||taskViewSaveInFlight||editing;
-  $('#taskRange').value=view.range;$('#taskDates').value=view.dates;renderInboxProject(projects,view);
-  const title=view.range==='inbox'?(view.dates==='today'?'指定清单 · 今天':'指定清单安排'):(state.scene==='总览'?(view.dates==='today'?'今天':'全部安排'):`${state.scene} · ${view.dates==='today'?'今天':'全部安排'}`);
+  $('#taskRange').value=view.range;$('#taskDates').value=view.dates;renderInboxProject(projects,view);renderDateFilters(view,projects);
+  const dateTitle=({today:'今天',week:'近7天',undated:'未安排',all:'全部安排'})[view.dates]||'全部安排';
+  const title=view.range==='inbox'?`指定清单 · ${dateTitle}`:state.scene==='总览'?dateTitle:`${state.scene} · ${dateTitle}`;
   $('#taskCardTitle').textContent=title;
   const sourceKey=didaDashboard?.source||({loading:'loading',authorizing:'authorizing',expired:'expired',error:'error',unconnected:'none'}[dida.state]||'none');
   const label=taskSourceLabel(dida.state==='expired'&&sourceKey==='cache'?'expired':sourceKey),selectedInbox=projectName.get(view.inboxProjectId);const mappedGroup=DIDA_GROUPS.find((group)=>group.scene===state.scene);const mappedName=state.scene!=='总览'&&mappedGroup?projectName.get(state.didaListIds?.[mappedGroup.key]):'';const sourceText=view.range==='inbox'&&selectedInbox?`指定清单：${selectedInbox}`:state.scene==='总览'?'全部已读清单':mappedName||'未关联清单';$('#taskSource').textContent=`${sourceText} · ${refreshInFlight?`${label} · 正在刷新`:label}`;
@@ -270,10 +328,13 @@ function renderTasks({preserveScroll=false}={}) {
   const failedIds=new Set(Array.isArray(didaDashboard.failedProjectIds)?didaDashboard.failedProjectIds:[]),unknownFailures=sourceKey==='partial'&&failedIds.size===0&&Number(didaDashboard.failedCount)>0;
   const failedSelected=sourceKey==='partial'&&(unknownFailures||projectIds.some(id=>failedIds.has(id)));
   if(sourceKey==='partial')host.append(make('div','task-banner task-message-warning',`部分同步：${Number(didaDashboard.failedCount)||0} 个清单读取失败；${failedSelected?'当前选择范围可能不完整。':'当前选择的清单已成功读取。'}`));
-  let tasks=(didaDashboard.tasks||[]).filter(task=>Number(task.status)!==2&&projectIds.includes(task.projectId));
-  if(view.dates==='today')tasks=tasks.filter(task=>HomeTaskView.taskDay(task)===todayKey()||HomeTaskView.isOverdue(task,todayKey()));
+  let tasks=(didaDashboard.tasks||[]).filter(task=>Number(task.status)!==2&&projectIds.includes(task.projectId)&&!(sourceKey==='partial'&&(unknownFailures||failedIds.has(task.projectId))));
+  tasks=tasks.filter(task=>HomeTaskView.matchesFilter(task,view.dates,todayKey()));
   tasks.sort(HomeTaskView.compareTasks);
   if(view.dates==='today'){
+    const overdue=tasks.filter(task=>HomeTaskView.isOverdue(task,todayKey()));
+    if(overdue.length)host.append(taskGroup('需要处理 · 逾期',overdue.map(task=>({...task,__projectName:projectName.get(task.projectId)}))));
+    tasks=tasks.filter(task=>!HomeTaskView.isOverdue(task,todayKey()));
     if(view.range==='inbox'){
       if(failedSelected){host.append(make('div','task-message task-message-warning','指定清单读取失败 · 暂不能确认任务。'));}
       else if(!tasks.length)host.append(make('div','task-message','今天暂无未完成任务。'));
@@ -287,11 +348,15 @@ function renderTasks({preserveScroll=false}={}) {
     if(preserveScroll)host.scrollTop=previousScroll;return;
   }
   if(failedSelected&&view.range==='inbox'){host.append(make('div','task-message task-message-warning','指定清单读取失败 · 任务列表不完整。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
+  if(view.dates==='week'){
+    const overdue=(didaDashboard.tasks||[]).filter(task=>Number(task.status)!==2&&projectIds.includes(task.projectId)&&!(sourceKey==='partial'&&(unknownFailures||failedIds.has(task.projectId)))&&HomeTaskView.isOverdue(task,todayKey())).length;
+    if(overdue)host.append(make('div','task-banner',`另有 ${overdue} 项逾期任务，可切到“今天”查看。`));
+  }
   if(!tasks.length){host.append(make('div','task-message',failedSelected?'清单读取失败 · 暂不能确认没有任务。':sourceKey==='cache'?'缓存中没有未完成任务。':'暂无未完成任务。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   const grouped=new Map();for(const task of tasks){const key=HomeTaskView.taskDay(task)??'no-date';if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push({...task,__projectName:projectName.get(task.projectId)||'其他清单'});}
   const today=todayKey();
   for(const [key,items] of grouped){
-    const heading=key==='invalid'?'日期待确认':key==='no-date'?'未设日期':HomeTaskView.dayLabel(key,today);
+    const heading=key==='invalid'?'日期待确认':key==='no-date'?'未安排':HomeTaskView.dayLabel(key,today);
     const detail=make('details','task-group');detail.open=!collapsedTaskGroups.has(heading);detail.dataset.groupTitle=heading;const summary=make('summary');summary.append(document.createTextNode(heading),make('span','count',String(items.length)));detail.append(summary);items.forEach(task=>detail.append(taskView(task,projectName)));host.append(detail);
   }
   if(preserveScroll)host.scrollTop=previousScroll;
@@ -621,14 +686,15 @@ $('#sceneNav').addEventListener('click',async event=>{
   // scene immediately; disk latency must not delay interaction feedback.
   if(!editing)try{await persist();}catch{toast('场景已切换，但保存失败；重新打开时可能恢复此前场景。');}
 });
+let searchCommandsOpen=false,searchCommandBusy=false;
 let searchRenderFrame=0,searchDirty=true,searchIndex=[],searchRows=[],searchActive=-1,searchTaskLocation=null,searchHighlightTimer=null;
 const searchInput=$('#search'),searchPanel=make('section','unified-search');
 searchPanel.hidden=true;searchPanel.setAttribute('aria-label','统一搜索');
-const searchStatus=make('p','search-status'),searchResults=make('div','search-results'),searchHint=make('p','search-hint','↑ ↓ 选择 · Enter 打开或定位 · Esc 关闭');
+const searchStatus=make('p','search-status'),searchResults=make('div','search-results'),searchHint=make('p','search-hint','↑ ↓ 选择 · Enter 执行 · Esc 关闭 · > 只看快捷操作');
 searchStatus.id='searchStatus';searchStatus.setAttribute('role','status');searchStatus.setAttribute('aria-live','polite');
-searchResults.id='searchResults';searchResults.setAttribute('role','listbox');searchResults.setAttribute('aria-label','入口与任务结果');
+searchResults.id='searchResults';searchResults.setAttribute('role','listbox');searchResults.setAttribute('aria-label','入口、任务与快捷操作结果');
 searchInput.setAttribute('aria-describedby','searchStatus');searchPanel.append(searchStatus,searchResults,searchHint);document.body.append(searchPanel);
-function closeSearch(){cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;searchPanel.hidden=true;searchInput.setAttribute('aria-expanded','false');searchInput.removeAttribute('aria-activedescendant');searchActive=-1;}
+function closeSearch(){searchCommandsOpen=false;cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;searchPanel.hidden=true;searchInput.setAttribute('aria-expanded','false');searchInput.removeAttribute('aria-activedescendant');searchActive=-1;}
 function invalidateSearch(){searchDirty=true;if(!searchPanel.hidden)scheduleSearch();}
 function positionSearch(){
   if(searchPanel.hidden)return;const r=searchInput.getBoundingClientRect(),width=Math.min(620,Math.max(350,r.width),innerWidth-24);
@@ -643,18 +709,19 @@ function setSearchActive(index){
 }
 function renderSearch(){
   cancelAnimationFrame(searchRenderFrame);searchRenderFrame=0;
-  const query=searchInput.value.trim().slice(0,200);if(!query){closeSearch();return;}
+  const query=searchInput.value.trim().slice(0,200);if(!query&&!searchCommandsOpen){closeSearch();return;}
   const startedAt=performance.now();if(searchDirty){searchIndex=HomeSearch.collect(state,didaDashboard,SCENES);searchDirty=false;}
-  const result=HomeSearch.query(searchIndex,query,state.scene);searchRows=result.rows;searchActive=-1;searchInput.removeAttribute('aria-activedescendant');searchResults.replaceChildren();
-  searchStatus.textContent=`${result.total?`找到 ${result.total} 项`:'没有找到匹配结果'} · ${HomeSearch.sourceMessage(didaDashboard)}${dida.state==='expired'&&didaDashboard?.source==='cache'?' · 授权已过期':''}`;
+  const commands=HomeSearch.commands(SCENES,query),onlyCommands=query.normalize('NFKC').startsWith('>')||!query;
+  const result=onlyCommands?{rows:[],total:0}:HomeSearch.query(searchIndex,query,state.scene);searchRows=[...result.rows,...commands];result.total+=commands.length;searchActive=-1;searchInput.removeAttribute('aria-activedescendant');searchResults.replaceChildren();
+  searchStatus.textContent=onlyCommands?`快捷操作 · ${commands.length} 项 · 选择后执行`:`${result.total?`找到 ${result.total} 项`:'没有找到匹配结果'} · ${HomeSearch.sourceMessage(didaDashboard)}${dida.state==='expired'&&didaDashboard?.source==='cache'?' · 授权已过期':''}`;
   if(result.total>searchRows.length)searchStatus.append(document.createTextNode(' · 每组最多显示 60 项，请补充关键词'));
   let previous='';searchRows.forEach((row,index)=>{
-    const group=row.kind==='entry'?'入口':'任务与小项';if(group!==previous){const heading=make('div','search-group',group);heading.setAttribute('role','presentation');searchResults.append(heading);previous=group;}
+    const group=row.kind==='command'?'快捷操作':row.kind==='entry'?'入口':'任务与小项';if(group!==previous){const heading=make('div','search-group',group);heading.setAttribute('role','presentation');searchResults.append(heading);previous=group;}
     const option=make('button','search-result');option.type='button';option.tabIndex=-1;option.id='search-result-'+index;option.dataset.searchResult=String(index);option.setAttribute('role','option');option.setAttribute('aria-selected','false');
-    const title=make('span','search-result-title',row.title),meta=row.kind==='entry'?[row.scenes.join(' / '),row.configured?'':'未设置地址'].filter(Boolean).join(' · '):[row.kind==='subtask'?'小项 · '+row.parentTitle:'任务',row.projectName,row.date==='invalid'?'日期待确认':row.date||'未设日期'].join(' · ');
-    option.append(make('span','search-result-mark',row.kind==='entry'?'↗':row.kind==='subtask'?'↳':'○'),title,make('small','search-result-meta',meta));searchResults.append(option);
+    const title=make('span','search-result-title',row.title),meta=row.kind==='command'?row.description:row.kind==='entry'?[row.scenes.join(' / '),row.configured?'':'未设置地址'].filter(Boolean).join(' · '):[row.kind==='subtask'?'小项 · '+row.parentTitle:'任务',row.projectName,row.date==='invalid'?'日期待确认':row.date||'未设日期'].join(' · ');
+    option.append(make('span','search-result-mark',row.kind==='command'?'⌘':row.kind==='entry'?'↗':row.kind==='subtask'?'↳':'○'),title,make('small','search-result-meta',meta));searchResults.append(option);
   });
-  if(!searchRows.length)searchResults.append(make('p','search-empty','试试任务名称、清单名称或软件名称。'));
+  if(!searchRows.length)searchResults.append(make('p','search-empty','试试任务、软件名称，或输入“新建任务”“打开设置”。'));
   searchPanel.hidden=false;searchInput.setAttribute('aria-expanded','true');positionSearch();recordUiTiming('search',startedAt);
 }
 function scheduleSearch(){cancelAnimationFrame(searchRenderFrame);searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=0;renderSearch();});}
@@ -671,8 +738,34 @@ function highlightSearchTask(row){
   const item=row.kind==='subtask'?[...task.querySelectorAll('[data-search-item-index]')].find(node=>row.itemId?node.dataset.searchItem===String(row.itemId):node.dataset.searchItemIndex===String(row.itemIndex)):null;
   const target=item||task;target.tabIndex=-1;target.classList.add('search-hit');target.focus({preventScroll:true});target.scrollIntoView({block:'nearest',behavior:'instant'});clearTimeout(searchHighlightTimer);searchHighlightTimer=setTimeout(()=>target.classList.remove('search-hit'),2500);
 }
+async function runSearchCommand(id){
+  const command=HomeSearch.commands(SCENES).find(item=>item.id===id);
+  if(!command||searchCommandBusy)return;
+  if(editing||layoutSaveInFlight||taskViewSaveInFlight||appearanceDraft||document.querySelector('dialog[open]')){toast('请先保存或取消编辑，并关闭当前弹窗。');return;}
+  searchCommandBusy=true;
+  try{
+    closeSearch();leaveSearchLocation(true);searchInput.value='';
+    if(command.id==='new-task'){
+      const button=$('#aiQuickAdd');
+      if(!button||button.disabled||typeof button.onclick!=='function'){toast('便签暂不可用，请先处理进行中的请求或待恢复便签。');return;}
+      await button.onclick();
+      if(!$('#aiPreviewDialog').open)toast($('#aiStatus').textContent||'无法准备便签，请检查滴答连接。');
+    }else if(command.id==='settings')$('#settingsBtn').click();
+    else if(command.id==='today'){
+      await saveTaskView({dates:'today'});
+      if(sceneTaskView().dates!=='today')return;
+      const card=$('#workspace [data-card=tasks]');
+      if(card.hidden)toast('当前场景的任务模块已隐藏，可在编辑布局中显示。');
+      else{$('#taskCardTitle').tabIndex=-1;$('#taskCardTitle').focus({preventScroll:true});card.scrollIntoView({block:'nearest',behavior:'instant'});}
+    }else if(command.scene){
+      const button=[...$('#sceneNav').children].find(node=>node.dataset.scene===command.scene);button?.click();[...$('#sceneNav').children].find(node=>node.dataset.scene===command.scene)?.focus({preventScroll:true});
+    }
+  }catch{toast('操作未能完成，请从原入口重试。');}
+  finally{searchCommandBusy=false;}
+}
 async function chooseSearchResult(index){
   const row=searchRows[index];if(!row)return;
+  if(row.kind==='command'){await runSearchCommand(row.id);return;}
   if(editing||layoutSaveInFlight||taskViewSaveInFlight){toast('请先保存或取消编辑，等待保存结束后再打开搜索结果。');return;}
   // Revalidate against the current in-memory snapshot before acting on a stale option.
   const fresh=HomeSearch.collect(state,didaDashboard,SCENES).find(item=>item.kind===row.kind&&(row.kind==='entry'?item.id===row.id:item.projectId===row.projectId&&item.taskId===row.taskId&&(row.kind!=='subtask'||(row.itemId?item.itemId===row.itemId:item.itemIndex===row.itemIndex&&item.title===row.title))));
@@ -696,7 +789,7 @@ searchInput.addEventListener('keydown',event=>{
 searchPanel.addEventListener('pointerdown',event=>{if(event.target.closest('[data-search-result]'))event.preventDefault();});
 searchPanel.addEventListener('click',event=>{const node=event.target.closest('[data-search-result]');if(node)void chooseSearchResult(Number(node.dataset.searchResult));});
 document.addEventListener('pointerdown',event=>{if(event.target!==searchInput&&!searchPanel.contains(event.target))closeSearch();});
-document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='k'&&!event.isComposing&&!document.querySelector('dialog[open]')){event.preventDefault();searchInput.focus();searchInput.select();}});
+document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='k'&&!event.isComposing&&!document.querySelector('dialog[open]')){event.preventDefault();searchCommandsOpen=true;searchInput.focus();searchInput.select();renderSearch();}});
 window.addEventListener('resize',positionSearch);window.addEventListener('scroll',event=>{if(event.target===window||!searchPanel.contains(event.target))positionSearch();},true);
 window.addEventListener('pagehide',()=>{closeSearch();clearTimeout(searchHighlightTimer);});
 
@@ -783,10 +876,17 @@ $('#entryForm').addEventListener('submit',event=>{event.preventDefault();saveEnt
 $('#didaConnect').onclick=async()=>{const result=await window.homeApi.connectDida();if(result.started)toast('已打开浏览器，请完成授权。');else toast(result.message||'无法开始授权。');await refreshDidaStatus({silent:true});};
 $('#didaDisconnect').onclick=async()=>{const result=await window.homeApi.disconnectDida();if(result?.ok===false){toast(result.message);return;}didaDashboard=null;await refreshDidaStatus({silent:true});toast('已删除本机滴答清单授权与缓存。');};$('#didaRefresh').onclick=()=>refreshDidaStatus();
 $('#didaEnableCompletion').onclick=openCompletionPermission;
+$('#taskDetailClose').onclick=()=>$('#taskDetailDialog').close();
+$('#taskDetailDialog').addEventListener('close',()=>{detailTaskKey=null;});
+for(const [id,action] of [['taskDetailComplete',task=>requestTaskCompletion(task)],['taskDetailFocus',task=>window.pomodoroUI?.focusTask(task.projectId,task.id)]])$('#'+id).onclick=()=>{
+  const task=(didaDashboard?.tasks||[]).find(item=>JSON.stringify([item.projectId,item.id])===detailTaskKey);
+  if(!task)return;$('#taskDetailDialog').close();action(task);
+};
 $('#taskPermissionCancel').onclick=()=>$('#taskPermissionDialog').close();
 $('#taskPermissionApply').onclick=async()=>{const button=$('#taskPermissionApply');if(button.disabled)return;button.disabled=true;$('#taskPermissionResult').textContent='正在打开授权页面…';try{const result=await window.homeApi.connectDida(true);$('#taskPermissionResult').textContent=result.started?'已打开浏览器，请明确授予读取与写入权限。授权后回到首页点击刷新；不会自动完成任何任务。':result.message||'授权未开始。';await refreshDidaStatus({silent:true});}catch{$('#taskPermissionResult').textContent='无法开始授权，原有授权仍保留。';}finally{button.disabled=false;}};
 $('#taskCompleteCancel').onclick=()=>{completionConfirmTask=null;$('#taskCompleteConfirmDialog').close();};
 $('#taskCompleteApply').onclick=()=>{const task=completionConfirmTask;completionConfirmTask=null;$('#taskCompleteConfirmDialog').close();if(task)void submitTaskCompletion(task);};
+for(const button of $('#taskDateFilters').children)button.onclick=()=>{if(!searchTaskLocation)void saveTaskView({dates:button.dataset.taskDate});};
 $('#taskRange').onchange=()=>saveTaskView({range:$('#taskRange').value});$('#taskDates').onchange=()=>saveTaskView({dates:$('#taskDates').value});$('#inboxProject').onchange=()=>saveTaskView({inboxProjectId:$('#inboxProject').value});
 document.addEventListener('click',event=>{const contextActionButton=event.target.closest('[data-context-action]');if(contextActionButton){contextAction(contextActionButton.dataset.contextAction);return;}const contextSceneButton=event.target.closest('[data-context-scene]');if(contextSceneButton&&contextEntry){const {id,area}=contextEntry;const sceneName=contextSceneButton.dataset.contextScene;closeEntryMenu();if(!editing)startEdit();addEntryToScene(sceneName,id,area);renderApps();renderSide();toast(`已加入 ${sceneName}；保存布局后生效。`);return;}const editLayout=event.target.closest('[data-edit-layout]');if(editLayout){if(!editing)startEdit();return;}const add=event.target.closest('[data-add]');if(add){buildEntryDialog({area:add.dataset.add,id:null});return;}const edit=event.target.closest('[data-edit]');if(edit){buildEntryDialog({area:edit.dataset.edit,id:edit.dataset.entry});return;}const remove=event.target.closest('[data-remove]');if(remove){if(!editing)startEdit();removeEntry(remove.dataset.remove,remove.dataset.entry);return;}const launch=event.target.closest('[data-entry]');if(launch&&!event.target.closest('.remove')&&!event.target.closest('.edit-item'))activateEntry(launch.dataset.entry);});document.addEventListener('change',event=>{const height=event.target.closest('[data-layout-height]');if(height)adjustHeight(height.dataset.layoutHeight,height.value);const setting=event.target.closest('[data-layout-setting]');if(setting&&editing){current().layout[setting.dataset.layoutSetting]=setting.value;renderLayout();}const view=event.target.closest('[data-view-toggle]');if(view&&editing){current().layout[view.dataset.viewToggle]=view.value==='true';renderLayout();renderApps();renderSide();}});document.addEventListener('pointerdown',event=>{if(!event.target.closest('#entryContextMenu'))closeEntryMenu();});document.addEventListener('keydown',keyboardLaunch);$('#workspace').addEventListener('contextmenu',event=>{const node=event.target.closest('[data-entry]');if(!node)return;event.preventDefault();openEntryMenu(node.dataset.entry,node.dataset.entryArea||'apps',event.clientX,event.clientY);});$('#tasks').addEventListener('toggle',event=>{const detail=event.target;if(detail.matches?.('details.task-group')){const title=detail.dataset.groupTitle;if(!detail.open)collapsedTaskGroups.add(title);else collapsedTaskGroups.delete(title);}},true);$('#tasks').addEventListener('change',event=>{if(event.target.dataset.task)toast('已更新示例任务状态；未同步到滴答清单。');});
 let appDrag=null;$('#appGrid').addEventListener('dragstart',event=>{const node=event.target.closest('.entry');if(!editing||!node||event.target.closest('button'))return;appDrag=Number(node.dataset.index);});$('#appGrid').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#appGrid').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.entry');if(!editing||appDrag===null||!node)return;const to=Number(node.dataset.index);const ids=current().apps;ids.splice(to,0,ids.splice(appDrag,1)[0]);appDrag=null;renderApps();toast('入口顺序已调整。');});
