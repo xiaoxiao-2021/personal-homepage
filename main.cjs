@@ -17,20 +17,23 @@ const {createCheckItemCompletion}=require('./dida-check-items.cjs');
 const assistant = require('./task-assistant.cjs');
 const drafts = require('./assistant-drafts.cjs');
 const pomodoro=require('./pomodoro.cjs');
+const work=require('./personal-work.cjs');
+const personalWork=work.createStore({fs,path,safeStorage,file:()=>path.join(app.getPath('userData'),'personal-work.bin'),onChange:value=>{for(const win of [mainWindow,trialWindow])if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('personal-work:changed',value);}});
+let workQuitFlushing=false,workQuitFlushed=false;
 const codexQuota=require('./codex-quota.cjs');
 const quotaService=codexQuota.createService({...(runtime.isolatedTest?{reader:async()=>{throw Object.assign(new Error('isolated'),{quotaCode:'missing'});}}:{}),find:()=>codexQuota.locateExecutable({
   appData:app.getPath('appData'),
   localAppData:process.env.LOCALAPPDATA||path.join(path.dirname(app.getPath('appData')),'Local')
 })});
-let pomodoroSettings=pomodoro.normalizeSettings(null),pomodoroSettingsBusy=false,pomodoroInterval=null,floatingPomodoro=null;
-function publishPomodoro(){const value=pomodoroTimer.snapshot();for(const win of [mainWindow,trialWindow]){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:state',value);}floatingPomodoro?.update();return value;}
-const pomodoroTimer=pomodoro.createTimer({onComplete:phase=>{
+let pomodoroSettings=pomodoro.normalizeSettings(null),pomodoroSettingsBusy=false,pomodoroInterval=null,floatingPomodoro=null,ambientWindow=null;
+function publishPomodoro(){const value=pomodoroTimer.snapshot();for(const win of [mainWindow,trialWindow]){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:state',value);}floatingPomodoro?.update();void ambientWindow?.syncFocus(value);return value;}
+const pomodoroTimer=pomodoro.createTimer({onRecord:event=>personalWork.record(event),onComplete:phase=>{
   const visible=[mainWindow,trialWindow].some(win=>win&&!win.isDestroyed()&&win.isVisible()&&!win.isMinimized());
   if(!visible&&Notification.isSupported())try{const notice=new Notification({title:'个人首页 · 番茄钟',body:phase==='focus'?'本轮专注已完成，回来开始休息吧。':'休息结束，可以开始下一轮专注。',silent:true});notice.on('click',showHomepage);notice.show();}catch{/* Completion remains in timer state if Windows notifications are unavailable. */}
   publishPomodoro();
 }});
 const { STARTUP_ARGUMENT, STARTUP_NAME, normalizeStartupPreferences, decideLoginItemChange, createLoginItemAdapter } = require('./startup-settings.cjs');
-const BUILD_ID = '2026.11.01.3';
+const BUILD_ID = '2026.11.08.5';
 const help=require('./app-help.cjs');
 const updateService=help.createService({current:app.getVersion()});
 function helpMetadata(){return {version:app.getVersion(),build:BUILD_ID};}
@@ -285,7 +288,7 @@ function queueDidaOperation(operation) {
 
 // Keep the existing renderer mode unchanged until controlled measurements support a change.
 app.disableHardwareAcceleration();
-protocol.registerSchemesAsPrivileged([{scheme:'home-audio',privileges:{standard:true,secure:true,supportsFetchAPI:true,stream:true}}]);
+protocol.registerSchemesAsPrivileged(['home-audio','home-ambient'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportsFetchAPI:true,stream:true}})));
 
 async function readStartupPreferences() {
   try {
@@ -1286,6 +1289,7 @@ app.on('second-instance', (_event, commandLine) => {
   showHomepage();
 });
 app.whenReady().then(async () => {
+  await personalWork.load();
   aiRecovery=await draftStorage.load();
   protocol.handle('home-audio', async (request) => {
     try {
@@ -1308,6 +1312,7 @@ app.whenReady().then(async () => {
       calendarSession = { follow: false, cursor: value.cursor, selected: value.selected };
     }
   });
+  powerMonitor.on('suspend',()=>pomodoroTimer.suspend());
   powerMonitor.on('resume', () => {
     requestCalendarCheck(mainWindow);
     requestCalendarCheck(trialWindow);
@@ -1325,6 +1330,10 @@ app.whenReady().then(async () => {
     if(event.senderFrame!==event.sender.mainFrame)return {ok:false,message:'此页面无权限。'};
     return localAssistant(handler)(event,...args);
   };
+  ipcMain.handle('personal-work:read',helpHandler(()=>{pomodoroTimer.snapshot();return personalWork.snapshot();}));
+  const personalActions=work.createActions({store:personalWork,getTask:ref=>(latestDidaDashboard?.tasks||[]).find(t=>t.id===ref.id&&t.projectId===ref.projectId&&Number(t.status)!==2),readConfig:async()=>(await readConfig()).config,validateEntry,launchEntry});
+  ipcMain.handle('personal-work:change',helpHandler(value=>personalActions.change(value)));
+  ipcMain.handle('personal-work:open',helpHandler(value=>personalActions.open(value)));
   ipcMain.handle('help:metadata',helpHandler(helpMetadata));
   ipcMain.handle('help:check',helpHandler(()=>runtime.isolatedTest?{state:'error',code:'ISOLATED',checkedAt:null}:updateService.check()));
   ipcMain.handle('help:diagnostic',helpHandler(()=>({ok:true,text:helpDiagnostic()})));
@@ -1335,7 +1344,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('codex-quota:read',localAssistant(async force=>({...await quotaService.read(force===true),build:BUILD_ID})));
   pomodoroSettings=pomodoro.normalizeSettings(initialConfig.config?.pomodoroSettings);
   pomodoroTimer.configure(pomodoroSettings);
-  floatingPomodoro=require('./floating-pomodoro.cjs').createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot:()=>pomodoroTimer.snapshot(),command:action=>{if(pomodoroSettingsBusy)return {ok:false};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};},onHome:showHomepage});
+  ambientWindow=require('./ambient-window.cjs').createAmbientWindow({BrowserWindow,screen,ipcMain,dialog,protocol,net,validateEntry,favorites:require('./ambient-favorites.cjs').createFavorites({fs,path,file:path.join(app.getPath('userData'),'ambient-favorites.json')}),openExternal:url=>shell.openExternal(url),onPlay:()=>{for(const win of [mainWindow,trialWindow])if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('music:command','pause');}});
+  ipcMain.handle('ambient:show',localAssistant(()=>ambientWindow.show()));
+  floatingPomodoro=require('./floating-pomodoro.cjs').createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot:()=>pomodoroTimer.snapshot(),command:action=>{if(pomodoroSettingsBusy)return {ok:false};const state=pomodoroTimer.command(action);publishPomodoro();return {ok:true,state};},onAmbient:()=>ambientWindow.show(),onHome:task=>{showHomepage();if(!task)return;const win=currentUiWindow();if(!win)return;const send=()=>{if(!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('pomodoro:review-task',task);};if(win.webContents.isLoadingMainFrame())win.webContents.once('did-finish-load',send);else send();}});
   pomodoroInterval=setInterval(()=>{pomodoroTimer.snapshot();floatingPomodoro?.update();},1000);
   ipcMain.handle('pomodoro:float',localAssistant(()=>floatingPomodoro.show()));
   ipcMain.handle('pomodoro:state',localAssistant(()=>pomodoroTimer.snapshot()));
@@ -1410,6 +1421,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('entry:copy-path', (_event, entryId) => copyConfiguredFolderPath(entryId));
   ipcMain.handle('audio:choose', () => chooseAudioFiles());
   ipcMain.on('music:state', (_event, value) => {
+    const sender=BrowserWindow.fromWebContents(_event.sender);if(sender!==mainWindow&&sender!==trialWindow)return;
+    if(value?.playing)ambientWindow?.pause();
     const next = { playing: Boolean(value?.playing), title: typeof value?.title === 'string' ? value.title.slice(0, 160) : '' };
     if (next.playing === musicState.playing && next.title === musicState.title) return;
     musicState = next;
@@ -1420,10 +1433,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('dida:status', getDidaStatus);
   ipcMain.handle('dida:dashboard', getDidaDashboard);
   ipcMain.handle('dida:connect', (_event, write) => beginDidaAuthorization(write === true));
-  ipcMain.handle('dida:complete', (event, projectId, taskId, expectedOccurrence) => {
+  ipcMain.handle('dida:complete', async (event, projectId, taskId, expectedOccurrence) => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
     if (!senderWindow || (senderWindow !== mainWindow && senderWindow !== trialWindow)) return { ok: false, code: 'sender', message: '此窗口不能完成任务。' };
-    return completeDidaTask(projectId, taskId, expectedOccurrence);
+    const result=await completeDidaTask(projectId,taskId,expectedOccurrence);
+    if(result?.ok)await personalWork.change('complete',{projectId,id:taskId,occurrence:expectedOccurrence});
+    return result;
   });
   ipcMain.handle('dida:complete-item',(event,projectId,taskId,itemId,occurrence,item)=>{
     const senderWindow=BrowserWindow.fromWebContents(event.sender);
@@ -1452,7 +1467,7 @@ app.whenReady().then(async () => {
   } else createWindow('focus');
 });
 
-app.on('will-quit', () => {quotaService.dispose();floatingPomodoro?.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
+app.on('will-quit', () => {quotaService.dispose();ambientWindow?.dispose();floatingPomodoro?.dispose();clearInterval(pomodoroInterval);globalShortcut.unregisterAll();});
 app.on('before-quit',(event)=>{
   if(pomodoroSettingsBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'番茄钟设置正在保存或恢复，请完成后再退出。');return;}
   if(aiCreating||aiRecoveryBusy){event.preventDefault();isQuitting=false;notifyWindow(currentUiWindow(),'便签正在提交或恢复，请等待结果后再退出。');return;}
@@ -1463,6 +1478,13 @@ app.on('before-quit',(event)=>{
       if(ok){aiQuitFlushed=true;app.quit();}
       else{isQuitting=false;notifyWindow(currentUiWindow(),'便签未能加密保存，请保留窗口并重试；当前便签仍在。');}
     }).finally(()=>{aiQuitFlushing=false;});return;
+  }
+  if(!workQuitFlushed){
+    event.preventDefault();if(workQuitFlushing)return;workQuitFlushing=true;const resumeRecording=pomodoroTimer.finishRecording();
+    void personalWork.flush().then(async ok=>{
+      if(!ok&&personalWork.status().dirty){const result=await dialog.showMessageBox(dialogParentWindow(),{type:'warning',title:'专注记录还没保存成功',message:'本轮专注记录尚未保存。',detail:'可以返回首页稍后重试；仍然退出可能丢失未保存的记录，原有文件会保留。',buttons:['返回首页','仍然退出'],defaultId:0,cancelId:0});if(result.response!==1){resumeRecording();isQuitting=false;return;}}
+      workQuitFlushed=true;app.quit();
+    }).catch(()=>{resumeRecording();isQuitting=false;notifyWindow(currentUiWindow(),'专注记录未保存，请稍后重试退出。');}).finally(()=>{workQuitFlushing=false;});return;
   }
   if (loginStartupLaunch && !startupQuitCleanupInFlight && !startupQuitCleanupDone) {
     event.preventDefault();

@@ -7,3 +7,5 @@
 #pomoStatus { margin-top:4px; overflow-wrap:anywhere; }
 #pomoDialog { width:min(440px,calc(100vw - 24px)); max-height:calc(100vh - 24px); overflow:auto; }
 #pomoDialog input { box-sizing:border-box; width:100%; }
+
+#focusViewWrapup{padding:12px;border-radius:16px;background:var(--soft,rgba(123,155,134,.12));margin:12px 0}#focusViewWrapup p{margin:0 0 10px;color:var(--muted)}#focusViewWrapup button{margin:3px}

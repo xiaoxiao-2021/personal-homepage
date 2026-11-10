@@ -2,8 +2,8 @@
 // Offline, allowlisted Electron prebuilt-binary packaging. No install/download/hooks.
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),{execFile}=require('node:child_process'),{promisify}=require('node:util');
 const run=promisify(execFile),root=path.resolve(__dirname,'..'),releaseRoot=path.resolve(root,'../releases');
-const SOURCE_FILES=['main.cjs','floating-pomodoro.cjs','preload-floating.cjs','preload.cjs','preload-trial.cjs','portable-runtime.cjs','startup-settings.cjs','startup-record.cjs','read-startup-record.ps1','desktop-bridge.ps1','local-entry.cjs','entry-icon.cjs','dida-completion.cjs','dida-check-items.cjs','task-assistant.cjs','assistant-drafts.cjs','startup-guide.cjs','app-help.cjs','pomodoro.cjs','codex-quota.cjs',
-  ...['index.html','floating-timer.html','floating-timer.css','floating-timer.js','desktop-trial.html','renderer.js','task-view.js','unified-search.js','focus-view.js','layout-presets.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css','daily-ui.css','startup-guide.js','app-help.js'].map(file=>'src/'+file)];
+const SOURCE_FILES=['src/assets/your-name.webp','src/assets/morning-lake.png','main.cjs','ambient-window.cjs','ambient-favorites.cjs','bili-source.cjs','preload-ambient.cjs','floating-pomodoro.cjs','preload-floating.cjs','preload.cjs','preload-trial.cjs','portable-runtime.cjs','startup-settings.cjs','startup-record.cjs','read-startup-record.ps1','desktop-bridge.ps1','local-entry.cjs','entry-icon.cjs','dida-completion.cjs','dida-check-items.cjs','task-assistant.cjs','assistant-drafts.cjs','startup-guide.cjs','app-help.cjs','pomodoro.cjs','personal-work.cjs','codex-quota.cjs',
+  ...['ambient.html','ambient.css','ambient.js','ambient-sound.js','index.html','floating-timer.html','floating-timer.css','floating-timer.js','desktop-trial.html','renderer.js','task-view.js','unified-search.js','focus-view.js','layout-presets.js','visual-polish.css','shared-tools.css','life-modules.css','layout-uniform.css','task-assistant.js','task-assistant.css','pomodoro.js','pomodoro.css','codex-quota.js','codex-quota.css','daily-ui.css','personal-work.js','personal-work.css','startup-guide.js','app-help.js'].map(file=>'src/'+file)];
 // Keep English as Chromium's fallback on non-Chinese Windows installations.
 // These are runtime translations only; app data and user language settings are untouched.
 const RUNTIME_LOCALES=['en-US.pak','zh-CN.pak','zh-TW.pak'];
@@ -49,7 +49,7 @@ async function buildPortable({outputName,archive=true}={}){
   const localeRoot=path.join(runtimeRoot,'locales');await assertOrdinary(localeRoot);
   for(const file of RUNTIME_LOCALES)await copyFile(path.join(localeRoot,file),path.join(destination,'locales',file));
   const appRoot=path.join(destination,'resources/app');
-  for(const file of SOURCE_FILES){await assertOrdinary(path.join(root,file));checkSource(await fs.readFile(path.join(root,file),'utf8'),file);await copyFile(path.join(root,file),path.join(appRoot,file));}
+  for(const file of SOURCE_FILES){await assertOrdinary(path.join(root,file));if(!/\.(png|webp)$/.test(file))checkSource(await fs.readFile(path.join(root,file),'utf8'),file);await copyFile(path.join(root,file),path.join(appRoot,file));}
   const packaged={name:'personal-homepage-portable-preview',productName:'个人首页 · 免安装测试版',version:manifest.version,description:manifest.description,main:'main.cjs',private:true,homepageDistribution:'portable-preview'};
   await fs.writeFile(path.join(appRoot,'package.json'),JSON.stringify(packaged,null,2)+'\n',{flag:'wx'});
   await copyFile(path.join(root,'PORTABLE.md'),path.join(destination,'使用说明.txt'));

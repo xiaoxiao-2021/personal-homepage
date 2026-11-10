@@ -58,7 +58,7 @@ async function quit(){
   if(!reuse)await run(powershell,['-NoProfile','-NonInteractive','-Command',"Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory($env:HOMEPAGE_TEST_ZIP,$env:HOMEPAGE_TEST_EXTRACT)"],{windowsHide:true,timeout:120000,env:{...process.env,HOMEPAGE_TEST_ZIP:zip,HOMEPAGE_TEST_EXTRACT:extractRoot}});
   directory=path.join(extractRoot,path.basename(zip,'.zip'));exe=path.join(directory,'个人首页.exe');
   const manifest=JSON.parse(await fs.readFile(path.join(directory,'portable-manifest.json'),'utf8'));
-  check(manifest.files.every(file=>!/(credential|homepage-config|assistant-submission|debug\.log|\.png$|\.mp3$)/i.test(file.path)),'ZIP inventory has no profiles, account credentials, media or runtime logs');
+  check(manifest.files.every(file=>['resources/app/src/assets/morning-lake.png','resources/app/src/assets/your-name.webp'].includes(file.path)||!/(credential|homepage-config|assistant-submission|debug\.log|\.(?:png|webp)$|\.mp3$)/i.test(file.path)),'ZIP inventory allows only reviewed built-in wallpapers, no user profiles, credentials, personal media or logs');
   const {createHash}=require('node:crypto');for(const file of manifest.files){const bytes=await fs.readFile(path.join(directory,file.path));assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);}
   check(true,'all extracted runtime and application files match manifest SHA256');
   await launch();
@@ -103,9 +103,29 @@ async function quit(){
   await nativeClick('#editBtn');await page(`state.tools.musicCollapsed=true;renderModules();true`);await nativeClick('#editBtn');
   await until(()=>page(`!editing`),'native save layout');check(await page(`state.tools.musicCollapsed===true`),'native save persists changed tool preference');
   check(await page(`(async()=>{await homeApi.pomodoroCommand('start');await new Promise(r=>setTimeout(r,1200));const s=await homeApi.pomodoroState();await homeApi.pomodoroCommand('pause');const p=await homeApi.pomodoroState();await homeApi.pomodoroCommand('reset');return s.status==='running'&&s.remainingMs<1500000&&p.status==='paused';})()`),'actual packaged timer IPC starts, advances, pauses and resets');
+  await until(()=>page('!!document.querySelector("#personalPlanFilter")'),'actual local work UI initializes');
+  check(await page('(async()=>{const r=await homeApi.personalWorkRead();return r.loaded&&r.ok&&r.sessions.some(s=>s.activeMs>=1000&&s.status==="interrupted");})()'),'real main records actual elapsed timer time after pause and reset');
+  check(await page('(async()=>{const r=await homeApi.personalWorkChange({action:"pin",id:"synthetic-missing",projectId:"synthetic-missing"});return !r.ok;})()'),'real main rejects pinning an unknown task without writing Dida');
+  await nativeClick('#personalFocusSummary');
+  check(await page('document.querySelector("#focusJournalDialog").open&&document.querySelectorAll(".personal-day").length===7'),'packaged native summary opens seven-day focus journal');
+  await nativeClick('#focusJournalClose');
+  await until(()=>main('process.mainModule.require("node:fs").existsSync(process.mainModule.require("node:path").join('+electron+'.app.getPath("userData"),"personal-work.bin"))'),'encrypted local journal reaches disk');
+  check(await main('(()=>{const f=process.mainModule.require("node:fs"),p=process.mainModule.require("node:path"),b=f.readFileSync(p.join('+electron+'.app.getPath("userData"),"personal-work.bin"));return !b.includes(Buffer.from("\\"sessions\\""));})()'),'packaged local work store is Windows encrypted on isolated disk');
+
+  check(await page(`(async()=>{const image=new Image();image.src='assets/your-name.webp';await image.decode();return image.naturalWidth>1000&&state.appearance.builtinWallpaper==='your-name'&&getComputedStyle(document.body).backgroundImage.includes('your-name.webp');})()`),'packaged default Your Name wallpaper is bundled decodable and effective after relocation');
+  await nativeClick('#themeBtn');await nativeClick('[data-wallpaper-preset=morning-lake]');
+  check(await page(`document.body.dataset.wallpaper==='morning-lake'`),'actual packaged native background switch previews Morning Lake');
+  await nativeClick('#appearanceCancel');
+  check(await page(`document.body.dataset.wallpaper==='your-name'`),'actual packaged Cancel restores Your Name background and palette');
   await nativeClick('#settingsBtn');check(await page(`document.querySelector('#settingsDialog').open`),'native settings opens in packaged page');
   check(await page(`(async()=>{const r=await homeApi.helpMetadata();return r.version===${JSON.stringify(manifest.version)}&&r.build===${JSON.stringify(manifest.buildId)};})()`),'packaged help metadata matches build');
-  await nativeClick('#helpCheck');
+  const themeBeforeSettings=await page(`state.theme`);
+  await nativeClick('[data-settings-tab=appearance]');await nativeClick('[data-theme-swatch=night]');
+  check(await page(`state.theme==='night'&&document.querySelector('#settingsAppearanceContent').contains(document.querySelector('#theme'))&&!document.querySelector('#themeDialog').open`),'packaged appearance swatch previews in single settings surface');
+  await nativeClick('#settingsCancel');
+  check(await page(`state.theme===${JSON.stringify(themeBeforeSettings)}&&document.querySelector('#themeDialog').contains(document.querySelector('#theme'))`),'packaged native cancel restores appearance and original controls');
+  await nativeClick('#settingsBtn');
+  await nativeClick('[data-settings-tab=about]');await nativeClick('#helpCheck');
   check(await page(`document.querySelector('#helpUpdateStatus').textContent.includes('隔离测试')`),'packaged update IPC respects offline isolated mode');
   await nativeClick('#helpDiagnosticDetails summary');
   check(await page(`(async()=>{const r=await homeApi.diagnosticSummary();return r.ok&&r.text.includes('免安装版')&&!r.text.includes('Users')&&!r.text.includes('AppData');})()`),'actual diagnostic IPC excludes user paths');
@@ -115,10 +135,10 @@ async function quit(){
   check(await page(`(async()=>{return (await homeApi.openHelp('feedback')).ok;})()`)&&await main(`globalThis.__helpLink==='https://github.com/xiaoxiao-2021/personal-homepage/issues'`),'actual feedback IPC selects fixed destination (browser sink intercepted)');
   await main(`(()=>{const e=${electron};e.clipboard.writeText=globalThis.__originalHelpCopy;e.shell.openExternal=globalThis.__originalHelpOpen;return true;})()`);
   await screenshot('help');
-  check(await page(`document.querySelector('#sceneSub').closest('[hidden]')!==null&&document.querySelectorAll('#settingsDialog .settings-section').length===5&&document.querySelector('#aiSettingsSlot button')!==null`),'packaged greeting has no scene subtitle and grouped preferences include AI entry');
+  check(await page(`document.querySelector('#sceneSub').closest('[hidden]')!==null&&document.querySelectorAll('[data-settings-tab]').length===6&&document.querySelector('#aiSettingsSlot button')!==null`),'packaged greeting has no scene subtitle and grouped preferences include AI entry');
   check(await page(`(()=>{const r=document.querySelector('.settings-footer').getBoundingClientRect();return r.bottom<=innerHeight&&document.querySelector('#settingsCancel').getBoundingClientRect().height>0;})()`),'packaged settings footer and cancel stay visible');
   await page(`Array.from(document.querySelectorAll('#settingsDialog button')).find(b=>b.textContent.includes('登录启动')).setAttribute('data-portable-startup','1');true`);
-  await nativeClick('[data-portable-startup="1"]');
+  await nativeClick('[data-settings-tab=accounts]');await nativeClick('[data-portable-startup="1"]');
   await until(()=>page(`document.querySelector('#startupEnabled').disabled`),'preview startup controls');await screenshot('settings');
   check(await page(`document.querySelector('#startupApply').disabled&&document.querySelector('#aboutInfo').textContent.includes(${JSON.stringify(manifest.buildId)})`),'actual version dialog shows build and disables preview startup writes');
   await page(`document.querySelector('#startupDialog').close();true`);await nativeClick('#settingsClose');
@@ -143,6 +163,8 @@ async function quit(){
   const recoverySeed={version:1,savedAt:new Date().toISOString(),preview:{id:'synthetic-restart-note',revision:1,scene:'总览',projects:[{id:'synthetic-list',name:'合成清单'}],timeZone:'Asia/Shanghai',sentAt:'2026-10-29 15:00',source:'manual',task:{title:'合成重启恢复便签',projectId:'synthetic-list',content:'仅测试',date:'2026-10-29',time:'',dateKind:'due',isAllDay:true}}};
   await main(`(()=>{const e=${electron},fs=process.mainModule.require('node:fs'),p=process.mainModule.require('node:path');fs.writeFileSync(p.join(e.app.getPath('userData'),'assistant-draft.bin'),e.safeStorage.encryptString(${JSON.stringify(JSON.stringify(recoverySeed))}));return true;})()`);
   await quit();await launch('ja-JP');
+  check(await page('(async()=>{const r=await homeApi.personalWorkRead();return r.sessions.some(s=>s.activeMs>=1000)&&r.sessions.every(s=>!["running","paused"].includes(s.status));})()'),'focus records survive full executable restart without resuming timer');
+
   const localeProbe=await main(`({requested:process.argv.includes('--lang=ja-JP'),effective:${electron}.app.getLocale()})`);
   check(localeProbe.requested&&typeof localeProbe.effective==='string'&&localeProbe.effective.length>0,'explicit non-bundled locale launch loads page and reports effective locale');
   check(await page(`state.tools.musicCollapsed===true`),'saved preference survives full packaged process restart');
@@ -160,6 +182,45 @@ async function quit(){
   check(await page(`(async()=>{const r=await homeApi.showFloatingTimer();return r.ok;})()`),'actual home IPC loads bundled floating window');
   check(await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('floating-timer.html'));return w&&w.isAlwaysOnTop()&&w.isVisible();})()`),'actual packaged floating window is visible and topmost');
   check(await main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('floating-timer.html'));return await w.webContents.executeJavaScript("typeof floatingTimer==='object'&&typeof homeApi==='undefined'&&document.getElementById('time').textContent==='25:00'");})()`),'actual floating preload and script load with restricted bridge');
+  check(await page(`(async()=>{return (await homeApi.showAmbient()).ok;})()`),'packaged main opens bundled ambient window');
+  const ambientPage=code=>main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html'));return await w.webContents.executeJavaScript(${JSON.stringify(code)},true);})()`);
+  check(await ambientPage(`typeof ambientApi==='object'&&typeof homeApi==='undefined'&&document.querySelector('#play').getAttribute('aria-pressed')==='false'`),'packaged ambient bridge is restricted and starts paused');
+  check(await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html'));return w.isVisible()&&w.isAlwaysOnTop();})()`),'packaged ambient window is visible and topmost');
+  check(await ambientPage(`(async()=>{return !(await ambientApi.bili({action:'load',url:'https://example.com/'})).ok;})()`),'packaged Bili bridge rejects arbitrary websites');
+  check(await ambientPage(`(async()=>{const r=await ambientApi.bili({action:'load',url:'BV1B7411m7LV'});await ambientApi.bili({action:'clear'});return r.ok&&r.url.startsWith('https://player.bilibili.com/player.html?')&&r.url.includes('autoplay=0')&&!document.querySelector('#biliPlayer').getAttribute('src');})()`),'packaged Bili parser canonicalizes ID without loading network until UI requests it');
+  check(await ambientPage(`(async()=>{await ambientApi.bili({action:'load',url:'BV1B7411m7LV'});return (await ambientApi.action('video-only')).ok;})()`),'actual restricted bridge switches native window to video-only');
+  await until(()=>main(`${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html')).getSize()[1]===230`),'packaged compact window size');
+  check(await ambientPage(`document.body.classList.contains('video-only')&&document.querySelector('#scene').clientHeight===innerHeight`),'packaged pure-video layout fills native compact window');
+  await ambientPage(`ambientApi.action('panel')`);await until(()=>main(`${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html')).getSize()[1]===562`),'packaged panel size');
+  check(await ambientPage(`!document.body.classList.contains('video-only')`),'packaged expanded panel restores controls');await ambientPage(`ambientApi.bili({action:'clear'})`);
+  // The test mutes OS output; standard AudioContext still executes normally.
+  await main(`${electron}.app.commandLine.appendSwitch('mute-audio');true`);
+  await page(`homeApi.onMusicCommand(command=>{if(command==='pause')globalThis.__ambientMusicPaused=true;});true`);
+  await ambientPage(`document.querySelector('#sourceMode').value='synth';document.querySelector('#sourceMode').dispatchEvent(new Event('change'));true`);await wait(200);
+  await ambientPage(`document.querySelector('#volume').value=0;document.querySelector('#volume').dispatchEvent(new Event('input'));document.querySelector('#play').click();true`);await wait(250);
+  check(await ambientPage(`document.querySelector('#play').getAttribute('aria-pressed')==='true'`),'actual packaged sound engine starts through genuine bridge');
+  check(await page(`globalThis.__ambientMusicPaused===true`),'starting environment sound asks existing music player to pause');
+  await main(`(()=>{const e=${electron},w=e.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/index.html'));e.ipcMain.emit('music:state',{sender:w.webContents},{playing:true,title:'合成静音音乐状态'});return true;})()`);await wait(200);
+  check(await ambientPage(`document.querySelector('#play').getAttribute('aria-pressed')==='false'`),'actual music state pauses environment sound');
+  await ambientPage(`ambientApi.action('hide')`);check(await main(`!${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html')).isVisible()`),'packaged ambient hide preserves application');
+  check(await main(`(async()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('floating-timer.html'));return (await w.webContents.executeJavaScript("floatingTimer.action('ambient')")).ok;})()`),'timer window can reopen ambient through restricted bridge');
+  check(await ambientPage(`(async()=>{const r=await ambientApi.favorites({action:'add',url:'https://www.bilibili.com/video/BV1B7411m7LV/?spm_id_from=synthetic',name:'合成雨声收藏'});return r.ok&&r.items.length===1&&!r.items[0].url.includes('spm_id');})()`),'actual favorite IPC commits canonical favorite');
+  check(await ambientPage(`(async()=>{
+    const r=await ambientApi.favorites({action:'add',url:'https://www.bilibili.com/video/av123/',name:'第二段收藏'});
+    if(!r.ok)return false;
+    const saved=await ambientApi.favorites({action:'remember',url:r.items[1].url,volume:.42});
+    return saved.ok&&saved.playback.lastId===r.items[1].id;
+  })()`),'packaged playback memory saves selected favorite and volume');
+  check(await ambientPage(`(async()=>{const r=await ambientApi.favorites({action:'remember',focusStart:false,focusEnd:true});return r.ok&&r.playback.focusEnd&&!r.playback.focusStart;})()`),'packaged focus linkage settings saved separately');
+  await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html'));w.setPosition(80,90);return true;})()`);
+  await ambientPage(`ambientApi.action('top')`);await wait(700);
+  await quit();await launch();check(await page(`(async()=>{return (await homeApi.showAmbient()).ok;})()`),'favorite window opens after full executable restart');
+  await until(()=>ambientPage(`document.querySelector('#favoriteSelect').options[0].textContent==='合成雨声收藏'`),'actual favorite UI restore');
+  check(await ambientPage(`document.querySelector('#sourceMode').value==='bili'&&!document.querySelector('#biliPlayer').getAttribute('src')&&document.querySelector('#play').getAttribute('aria-pressed')==='false'`),'favorites survive full process restart with no network load or autoplay');
+  check(await ambientPage(`(async()=>{const r=await ambientApi.favorites({action:'list'});return r.items.length===2&&r.items[0].name==='合成雨声收藏';})()`),'restart uses real main-profile favorite store');
+  check(await ambientPage(`document.querySelector('#favoriteSelect').selectedOptions[0].textContent==='第二段收藏'&&document.querySelector('#volume').value==='0.42'&&document.querySelector('#level').textContent==='42%'`),'real process restart restores last played favorite and volume');
+  check(await ambientPage(`(async()=>{const r=await ambientApi.favorites({action:'list'});return r.playback.focusEnd&&!r.playback.focusStart&&document.querySelector('#focusEnd').checked;})()`),'focus options survive actual executable restart');
+  check(await main(`(()=>{const w=${electron}.BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/ambient.html'));return !w.isAlwaysOnTop()&&w.getBounds().x===80&&w.getBounds().y===90;})()`),'actual process restart restores placement and top preference');
   await quit();
 
   await fs.writeFile(path.join(output,'exe-report.json'),JSON.stringify({passed:checks.length,checks,errors,localeProbe,stability,scope:'Actual ZIP extracted to a Unicode/space directory, relocated packaged exe, sandboxed actual preload/main, native mouse buttons plus synthetic draft mutation, isolated disk save and process restart. External services blocked. Non-bundled --lang launch tested; no assertion that Windows language changed. No real Dida/DeepSeek/Codex, startup writes, desktop mounting, audio playback, Windows DPI or publisher signing acceptance.'},null,2));console.log(`PASS ${checks.length} real packaged-exe checks.`);

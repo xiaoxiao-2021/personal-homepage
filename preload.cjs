@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('homeApi', {
+  personalWorkRead:()=>ipcRenderer.invoke('personal-work:read'),
+  personalWorkChange:value=>ipcRenderer.invoke('personal-work:change',value),
+  personalWorkOpen:value=>ipcRenderer.invoke('personal-work:open',value),
+  onPersonalWorkChanged:callback=>{const handler=(_event,value)=>callback(value);ipcRenderer.on('personal-work:changed',handler);return ()=>ipcRenderer.removeListener('personal-work:changed',handler);},
   helpMetadata:()=>ipcRenderer.invoke('help:metadata'),
   checkUpdates:()=>ipcRenderer.invoke('help:check'),
   diagnosticSummary:()=>ipcRenderer.invoke('help:diagnostic'),
@@ -9,11 +13,13 @@ contextBridge.exposeInMainWorld('homeApi', {
   guideState:()=>ipcRenderer.invoke('guide:state'),
   dismissGuide:()=>ipcRenderer.invoke('guide:dismiss'),
   codexQuota:force=>ipcRenderer.invoke('codex-quota:read',force===true),
+  showAmbient:()=>ipcRenderer.invoke('ambient:show'),
   showFloatingTimer:()=>ipcRenderer.invoke('pomodoro:float'),
   pomodoroState:()=>ipcRenderer.invoke('pomodoro:state'),
   pomodoroCommand:action=>ipcRenderer.invoke('pomodoro:command',action),
   pomodoroFocusTask:value=>ipcRenderer.invoke('pomodoro:focus-task',value),
   pomodoroSettings:value=>ipcRenderer.invoke('pomodoro:settings',value),
+  onPomodoroReview:callback=>{const handler=(_event,value)=>callback(value);ipcRenderer.on('pomodoro:review-task',handler);return ()=>ipcRenderer.removeListener('pomodoro:review-task',handler);},
   onPomodoroState:callback=>{const handler=(_event,value)=>callback(value);ipcRenderer.on('pomodoro:state',handler);return ()=>ipcRenderer.removeListener('pomodoro:state',handler);},
   assistantStatus: () => ipcRenderer.invoke('assistant:status'),
   assistantSettings: value => ipcRenderer.invoke('assistant:settings',value),

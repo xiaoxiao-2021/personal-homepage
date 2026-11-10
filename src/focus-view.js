@@ -13,10 +13,12 @@
     const seconds=Math.max(0,Math.ceil(value.remainingMs/1000));
     $('#focusViewTime').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
     $('#focusViewPhase').textContent=value.phase==='focus'?'专注这一刻':'休息一下';
-    $('#focusViewStatus').textContent=({idle:'准备好了，就慢慢开始',running:'一步一步来',paused:'停一停，也没关系',completed:'这一轮结束了，任务由你确认完成'})[value.status];
+    $('#focusViewStatus').textContent=({idle:'准备好了，就慢慢开始',running:'一步一步来',paused:'停一停，也没关系',completed:value.phase==='focus'?'这一段辛苦啦，任务由你确认完成':'休息结束，慢慢回到眼前这件事'})[value.status];
     const matching=value.task?.id===identity?.id&&value.task?.projectId===identity?.projectId;
     $('#focusViewToggle').textContent=value.status==='running'?'暂停':value.status==='paused'?'继续':value.status==='completed'?(value.phase==='focus'?'开始休息':'开始专注'):'开始';
     $('#focusViewToggle').disabled=$('#pomoStart').disabled||(!matching&&value.status!=='idle');
+    $('#focusViewWrapup').hidden=!(matching&&value.status==='completed'&&value.phase==='focus');
+    $('#focusViewContinue').disabled=$('#pomoStart').disabled;$('#focusViewBreak').disabled=$('#pomoStart').disabled;
     $('#focusViewReset').disabled=$('#pomoReset').disabled;
     if(!matching&&value.task)$('#focusViewStatus').textContent='计时关联已变化，请返回首页确认当前任务。';
   }
@@ -38,6 +40,7 @@
     if(!steps.length)host.append(make('p','sub','这一件，就从眼前开始。'));
     $('#focusViewComplete').disabled=row.querySelector('.task-complete').disabled;
     if(active){[...host.querySelectorAll('[data-check-item-id]')].find(n=>n.dataset.checkItemId===active)?.focus({preventScroll:true});}
+    window.personalWork?.renderResources(task,host,true);
     dialog.scrollTop=scroll;music();timerChanged(window.pomodoroUI?.snapshot());
   }
   function open(projectId,id){
@@ -50,7 +53,17 @@
   dialog.addEventListener('close',()=>{const target=origin?.isConnected?origin:[...document.querySelectorAll('#tasks [data-focus-task]')].find(n=>n.dataset.focusTask===identity?.id&&n.dataset.focusProject===identity?.projectId);identity=null;target?.focus({preventScroll:true});if(homeScroll){$('#tasks').scrollTop=homeScroll.tasks;window.scrollTo({top:homeScroll.window,behavior:'instant'});}window.pomodoroUI?.layoutChanged();});
   $('#focusViewToggle').onclick=()=>{const value=window.pomodoroUI?.snapshot();if(!value?.task&&identity)void window.pomodoroUI?.focusTask(identity.projectId,identity.id);else $('#pomoStart').click();};
   $('#focusViewReset').onclick=()=>$('#pomoReset').click();
-  $('#focusViewComplete').onclick=()=>{const task=currentTask();if(task)requestTaskCompletion(task);};
+  $('#focusViewComplete').onclick=()=>{const task=currentTask();if(task)requestTaskCompletion(task,{forceConfirm:true});};
+  $('#focusViewContinue').onclick=()=>window.pomodoroUI?.command('continue-focus');
+  $('#focusViewBreak').onclick=()=>window.pomodoroUI?.command('take-break');
+  const unsubscribeReview=window.homeApi.onPomodoroReview?.(task=>{
+    if(editing||layoutSaveInFlight||[...document.querySelectorAll('dialog[open]')].some(n=>n!==dialog)||(dialog.open&&(identity?.id!==task?.id||identity?.projectId!==task?.projectId))){toast('请先完成当前操作，再从专注任务中确认完成。');return;}
+    const found=(didaDashboard?.tasks||[]).find(t=>t.id===task?.id&&t.projectId===task?.projectId&&Number(t.status)!==2);
+    if(!found||didaDashboard.source!=='live'){toast('请先刷新任务列表，核对这件事是否已完成。');return;}
+    if(!dialog.open)open(found.projectId,found.id);else refresh();
+    if(!$('#focusViewComplete').disabled)requestTaskCompletion(found,{forceConfirm:true});
+  });
+  window.addEventListener('pagehide',()=>unsubscribeReview?.(),{once:true});
   $('#focusViewMusicPlay').onclick=()=>$('#musicPlay').click();
   for(const name of ['play','pause','loadedmetadata','ended','error'])$('#musicAudio').addEventListener(name,music);
   window.addEventListener('homepage-tools-rendered',music);

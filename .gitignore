@@ -57,3 +57,7 @@
 **/*.key
 **/*.pfx
 **/*.p12
+
+# Only the two built-in wallpaper assets are part of the source release.
+!/src/assets/morning-lake.png
+!/src/assets/your-name.webp

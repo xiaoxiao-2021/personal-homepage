@@ -416,3 +416,162 @@ body.night .unified-search { box-shadow:0 10px 32px rgba(0,0,0,.3); }
 #workspace[data-density=compact] .head{padding:10px 12px 8px}#workspace[data-density=compact] .task-view-controls{padding:0 12px 6px;gap:5px 8px}#workspace[data-density=compact] .task-group summary{padding-top:8px;padding-bottom:6px}#workspace[data-density=compact] #moduleStack>.module-panel{padding:10px;gap:4px}#workspace[data-density=compact] #moduleStack{gap:8px}#workspace[data-density=compact] #moduleTimeNow{font-size:28px}#workspace[data-density=compact] #moduleStack .calendar-grid button{min-height:26px}#workspace[data-density=compact] #moduleStack .calendar-grid{gap:1px 3px}
 body.layout-preset-preview .display-settings,body.layout-preset-preview [data-add],body.layout-preset-preview .remove,body.layout-preset-preview .edit-item{display:none!important}
 @media(max-width:540px){#layoutPresetBar{padding:10px}#layoutPresetBar [role=group]{width:100%}#layoutPresetBar [role=group] button{flex:1}}
+
+/* Quiet daily surfaces, shared by window and desktop modes. */
+.top,body.desktop-home .top{padding:10px 14px;border-radius:18px}
+.summary,body.desktop-home .summary{margin:12px 3px;min-height:28px}
+.daily-greeting{font-size:14px;letter-spacing:.01em}
+.entry{background:color-mix(in srgb,var(--solid) 86%,transparent);border-color:color-mix(in srgb,var(--line) 45%,transparent)}
+.entry-icon{border-radius:11px;background:var(--soft)}
+.task-view-controls select{background:transparent;border-color:color-mix(in srgb,var(--line) 70%,transparent);font-size:12px}
+.task-date-filters{gap:3px;padding-bottom:8px;border-bottom:1px solid color-mix(in srgb,var(--line) 65%,transparent)}
+.task-date-filters button{padding:6px 9px;border:0;min-height:28px}
+.task-filter-summary{font-size:10px;margin-bottom:8px}
+.task-group .subtask{border-left:1px solid var(--line);padding-left:10px;color:var(--muted)}
+#moduleStack>.module-panel{gap:5px}
+#moduleCard.fit-viewport #moduleStack>.module-panel{padding:10px 12px}
+#moduleStack .calendar-grid{gap:2px 3px}
+#moduleStack .calendar-grid button{min-height:25px;padding:2px 0;font-size:11px}
+#moduleStack .calendar-week{font-size:10px;margin-bottom:3px}
+#moduleStack .calendar-label{margin:3px 0;font-size:12px}
+#moduleStack .calendar-footer{font-size:10px;margin-top:4px;line-height:1.5}
+#moduleStack #moduleTimeNow{font-size:32px;line-height:1.15}
+#moduleStack>[data-module=time].clock-large #moduleTimeNow{font-size:38px}
+#moduleStack>.is-combined-start{margin-bottom:-11px}
+#moduleCard.fit-viewport #moduleStack>.is-combined-start{margin-bottom:-7px}
+#moduleStack [data-module=pomodoro] .pomo-row{margin:2px 0;gap:8px}
+#moduleStack #pomoTime{font-size:27px}
+#moduleStack #pomoStatus{font-size:10px}
+.quota-panel.is-collapsed .quota-chip{background:transparent;padding:0;font-size:11px}
+.quota-panel.is-collapsed .quota-summary{justify-content:space-between;gap:4px 12px}
+.quota-overview{width:100%;height:4px;accent-color:var(--tool-accent,var(--accent));display:block;border:0}
+.quota-panel:not(.is-collapsed) .quota-overview{display:none}
+@media(min-width:1150px){
+ .top,body.desktop-home .top{grid-template-columns:145px auto minmax(130px,1fr) auto;gap:10px}
+ .top .brand,.top .scenes,.top .search,.top .actions{grid-column:auto;grid-row:1;width:auto;justify-self:stretch}
+ .top .scene{padding:7px 8px;font-size:12px}
+ .top .brand h1{font-size:17px}
+ .top .actions{flex-wrap:nowrap}
+ .top .search{max-width:none}
+}
+/* A stable category rail and one scrollable content surface. */
+#settingsDialog{width:min(860px,calc(100vw - 28px));border-radius:20px}
+#settingsDialog>.modal{height:min(700px,calc(100dvh - 30px));max-height:calc(100dvh - 30px)}
+.settings-heading{padding:20px 24px 17px;border-bottom:1px solid var(--line)}
+.settings-emblem{background:transparent;width:27px;flex-basis:27px;font-size:23px}
+.settings-layout{display:grid;grid-template-columns:165px minmax(0,1fr);min-height:0;flex:1;overflow:hidden}
+.settings-nav{display:flex;flex-direction:column;gap:6px;padding:20px 12px;border-right:1px solid var(--line);overflow:auto}
+.settings-nav button{display:flex;align-items:center;gap:10px;width:100%;min-height:38px;padding:9px 10px;text-align:left;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted);font:inherit;font-size:12px}
+.settings-nav button:hover{background:var(--soft);color:var(--ink)}
+.settings-nav button[aria-current=page]{background:var(--soft);color:var(--accent);font-weight:600}
+.settings-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#settingsDialog .settings-body{display:block;padding:24px;min-width:0;scrollbar-gutter:stable;overflow:auto}
+#settingsDialog .settings-section{border:0;padding:0;background:transparent;border-radius:0;margin:0 0 24px}
+#settingsDialog .settings-section h4{font-size:17px;margin-bottom:10px}
+#settingsDialog .settings-section .row{margin:16px 0}
+#settingsDialog .settings-section p{font-size:12px}
+#settingsDialog .settings-feature{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid var(--line)}
+.settings-feature strong{font-size:13px}.settings-feature .btn{flex:none}
+#settingsDialog .settings-feature p{margin:6px 0 0}
+#settingsAppearanceContent>.modal{padding:0;max-height:none;overflow:visible}
+#settingsAppearanceContent>.modal>h3,#settingsAppearanceContent>.modal>p,#settingsAppearanceContent .modal-actions{display:none}
+#settingsDialog .settings-footer{padding:14px 24px;margin:0;border-top:1px solid var(--line);background:var(--solid)}
+body:has(dialog:not(#settingsDialog)[open]) #settingsDialog[open]{visibility:hidden}
+body:has(dialog:not(#settingsDialog)[open]) #settingsDialog::backdrop{background:transparent;backdrop-filter:none}
+@media(max-width:560px){
+ .settings-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+ .settings-nav{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:8px;gap:4px;flex-wrap:wrap}
+ .settings-nav button{width:auto;flex:1 0 28%;justify-content:center;font-size:11px;padding:7px 4px;gap:5px}
+ #settingsDialog .settings-body{padding:18px}
+ .settings-heading{padding:16px 18px}
+ #settingsDialog .settings-footer{padding:12px 18px;gap:8px;flex-wrap:wrap}
+}
+
+.settings-theme-swatches{display:flex;gap:12px;margin:18px 0 22px}
+.settings-theme-swatches button{flex:1;border:1px solid transparent;border-radius:12px;background:transparent;padding:5px;color:var(--muted);font:inherit;font-size:12px;min-height:72px}
+.settings-theme-swatches span{display:block;height:42px;border-radius:9px;border:1px solid var(--line);margin-bottom:8px;background:#f5f2e8}
+.settings-theme-swatches [data-theme-swatch=peach] span{background:#e8cbbd}
+.settings-theme-swatches [data-theme-swatch=night] span{background:#324139}
+.settings-theme-swatches [aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:var(--soft)}
+#settingsAppearanceContent .theme-select-row{display:none}
+
+#settingsAppearanceContent input[type=range]{accent-color:var(--accent)}
+
+/* Task reading hierarchy; keep saved geometry and assistant surfaces intact. */
+body{--task-paper-alpha:.96}
+body.glass-clear{--task-paper-alpha:.99}
+body.glass-transparent{--task-paper-alpha:.90}
+#taskColumn>.task-card{background:linear-gradient(180deg,rgba(var(--surface-rgb),var(--task-paper-alpha)) 0%,rgba(var(--surface-rgb),var(--task-paper-alpha)) 68%,rgba(var(--surface-rgb),calc(var(--task-paper-alpha) - .06)) 100%)}
+#tasks{border-radius:0 0 15px 15px}
+#tasks .task-group{border-top:0;margin:3px 0 12px}
+#tasks .task-group>summary{padding:9px 8px 7px;gap:8px;border-radius:9px;color:var(--muted)}
+#tasks .task-group>summary:hover{background:color-mix(in srgb,var(--soft) 48%,transparent)}
+#tasks .task-group>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.task-day-label{display:inline-block;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--soft) 70%,transparent);color:var(--accent);font-size:11px;font-weight:600;line-height:1.6}
+#tasks .task-group>summary .count{margin-left:0;margin-right:auto;font-size:10px;font-variant-numeric:tabular-nums}
+#tasks .task-group>summary::after{margin-left:0;font-size:13px}
+#tasks .task-group .task{border:0;border-radius:9px;margin:2px 0;padding:9px 8px;row-gap:4px}
+#tasks .task-group .task:focus-within{background:color-mix(in srgb,var(--soft) 38%,transparent)}
+#tasks .task-title{font-size:13px;line-height:1.65;font-weight:500}
+#tasks .task-body>small{margin-top:3px;font-size:10px;line-height:1.6}
+#tasks .task-list-name{background:transparent;color:var(--muted);padding:3px 0 2px;font-weight:400;font-size:10px}
+#tasks .task-item-progress{font-weight:400;font-variant-numeric:tabular-nums;border-radius:5px;padding:1px 5px;font-size:10px}
+#tasks .task-group .check-item{margin-left:10px;padding:2px 0 2px 14px;border-left:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+#tasks .check-item .check-item-complete::before{inset:5px;border-radius:3px}
+#tasks .check-item .check-item-title{padding-top:2px;font-size:11px;line-height:1.7}
+#tasks .task-items-toggle{min-height:26px;margin:1px 0 2px 32px;padding:3px 6px;font-size:10px}
+#moduleStack .module-actions{gap:4px;align-items:center}
+#moduleStack .module-actions .btn.subtle{color:var(--muted);font-size:10px;padding:4px 6px;border-color:transparent;border-radius:7px;background:transparent}
+#moduleStack .module-actions .btn.subtle:hover:not(:disabled){background:var(--tool-soft,var(--soft));color:var(--tool-accent,var(--accent))}
+#moduleStack .module-actions .btn.subtle:focus-visible{outline:2px solid var(--tool-accent,var(--accent));outline-offset:2px}
+#moduleStack [data-module=pomodoro] .tool-icon{display:inline-grid;place-items:center;width:28px;height:28px;min-height:28px;padding:5px}
+.tool-icon svg{width:16px;height:16px;display:block}
+#moduleStack #pomoStart,#moduleStack #musicPlay{border-color:color-mix(in srgb,var(--tool-accent,var(--accent)) 22%,transparent)}
+@media(max-width:590px){#tasks .task-title{font-size:13px}#tasks .task-list-name{max-width:100%;overflow-wrap:anywhere}}
+
+/* One task, one clock, with the same reading surfaces as the homepage. */
+#focusViewDialog{border-radius:22px;border-color:color-mix(in srgb,var(--accent) 18%,var(--line));box-shadow:0 16px 55px #15231c25}
+#focusViewDialog::backdrop{background:rgba(29,43,34,.48);opacity:1;backdrop-filter:none}
+.focus-view-shell{padding:18px 28px 24px}
+.focus-view-header{padding:8px 0 14px;gap:7px;background:var(--solid)}
+.focus-view-header>span{font-size:11px;color:var(--muted)}
+.focus-view-header .btn{font-size:11px;min-height:30px;padding:6px 9px;border-color:color-mix(in srgb,var(--line) 65%,transparent);border-radius:8px}
+.focus-view-main{max-width:620px;margin:22px auto 8px}
+.focus-view-main h2{font-size:clamp(22px,3vw,29px);font-weight:600;line-height:1.6;letter-spacing:.01em;margin:10px 0}
+#focusViewSource{font-size:11px;color:var(--accent)}
+#focusViewDates{font-size:11px;line-height:1.7;color:var(--muted)}
+.focus-view-clock{padding:20px 0 24px;text-align:center}
+.focus-view-clock>span{display:inline-block;padding:4px 9px;border-radius:7px;background:var(--soft);font-size:11px}
+.focus-view-clock strong{font-size:clamp(52px,9vw,76px);font-weight:600;letter-spacing:-2px;color:var(--accent);line-height:1.45}
+.focus-view-clock p{margin:2px 0 12px;font-size:11px}
+.focus-view-clock .btn{min-width:80px;border-radius:10px;margin:3px;min-height:36px}
+#focusViewReset{color:var(--muted);background:transparent;border-color:var(--line)}
+.focus-view-steps{border:1px solid color-mix(in srgb,var(--line) 70%,transparent);border-radius:15px;background:color-mix(in srgb,var(--soft) 20%,var(--solid));padding:14px 18px}
+.focus-view-steps>.sub{margin:0 0 8px;color:var(--accent);font-size:11px}
+.focus-view-steps .subtask{padding:7px 0;gap:10px;line-height:1.7}
+.focus-view-notes{padding:14px 2px;font-size:12px}
+.focus-view-notes summary{cursor:pointer;color:var(--muted)}
+.focus-view-music{margin-top:18px;padding-top:14px;font-size:11px;gap:10px}
+#focusViewComplete{margin-top:8px;font-size:12px;border-radius:9px;background:transparent;color:var(--accent);border-color:var(--line)}
+#focusViewComplete:hover:not(:disabled){background:var(--soft)}
+@media(max-width:540px){.focus-view-shell{padding:14px 18px 20px}.focus-view-header{gap:6px}.focus-view-main{margin-top:16px}.focus-view-steps{padding:12px}.focus-view-header>span{max-width:none;flex-basis:100%}}
+@media(prefers-reduced-motion:no-preference){#focusViewDialog[open]{animation:focus-surface-appear .14s ease-out}@keyframes focus-surface-appear{from{opacity:0}to{opacity:1}}}
+
+/* Your Name skin: same saved geometry, with quiet blue-gray reading surfaces. */
+body[data-wallpaper="your-name"]:not(.peach):not(.night){
+ --ink:#2b3b46;--muted:#667780;--line:#d7e1df;--surface-rgb:250,251,248;
+ --solid:#fcfdfb;--accent:#467d86;--soft:#e4eff0;--shadow:0 4px 16px rgba(36,65,79,.07);
+}
+body[data-wallpaper="your-name"]:not(.night) .daily-greeting{color:#305b67;text-shadow:0 1px 2px #ffffffb3}
+#themeDialog .wallpaper-library{grid-column:1/-1}
+.wallpaper-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.wallpaper-preset{min-width:0;display:grid;gap:5px;padding:7px;text-align:left;border:1px solid var(--line);border-radius:12px;background:var(--solid);color:var(--ink);font:inherit}
+.wallpaper-preset strong{font-size:12px;font-weight:600;padding:1px 3px}
+.wallpaper-preset small{font-size:10px;color:var(--muted);padding:0 3px 3px;line-height:1.5}
+.wallpaper-preview{display:block;height:86px;border-radius:7px;background-size:cover;background-position:center bottom;background-color:#dce7e6}
+.wallpaper-your-name{background-image:url("assets/your-name.webp")}
+.wallpaper-morning-lake{background-image:url("assets/morning-lake.png")}
+.wallpaper-preset[aria-pressed=true]{border-color:var(--accent);background:var(--soft)}
+.wallpaper-preset:hover{border-color:var(--accent)}
+.wallpaper-preset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:390px){.wallpaper-preview{height:68px}.wallpaper-preset small{font-size:9px}}

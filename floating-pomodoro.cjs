@@ -1,9 +1,9 @@
 'use strict';
 const path=require('node:path');
-function createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot,command,onHome}){
+function createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot,command,onHome,onAmbient=()=>({ok:false})}){
   let win=null,disposed=false;
   const channels=['focus-float:state','focus-float:action'];
-  const safeState=()=>{const s=snapshot();return {phase:s.phase,status:s.status,remainingMs:s.remainingMs,title:s.task?.title||'专注这一刻'};};
+  const safeState=()=>{const s=snapshot();return {phase:s.phase,status:s.status,remainingMs:s.remainingMs,revision:s.revision,sample:s.sample,title:s.task?.title||'专注这一刻',hasTask:Boolean(s.task)};};
   function clamp(){if(!win||win.isDestroyed())return;const b=win.getBounds(),a=screen.getDisplayMatching(b).workArea;win.setPosition(Math.round(Math.max(a.x,Math.min(b.x,a.x+a.width-b.width))),Math.round(Math.max(a.y,Math.min(b.y,a.y+a.height-b.height))));}
   function update(){if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send('focus-float:state',safeState());}
   async function show(){
@@ -22,9 +22,15 @@ function createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot,command,onHo
   ipcMain.handle(channels[1],async(event,action)=>{
     if(!authorized(event))return {ok:false};
     if(action==='hide'){win.hide();return {ok:true};}
+    if(action==='ambient')return onAmbient();
     if(action==='home'){onHome();return {ok:true};}
-    if(action!=='toggle')return {ok:false};
     const state=snapshot();
+    if(['complete','continue-focus','take-break'].includes(action)){
+      if(state.status!=='completed'||state.phase!=='focus')return {ok:false,message:'计时状态已变化，请重新查看。'};
+      if(action==='complete'){if(!state.task)return {ok:false};onHome({...state.task});return {ok:true};}
+      try{const result=await command(action);update();return result;}catch{return {ok:false,message:'操作暂未成功，请重试。'};}
+    }
+    if(action!=='toggle')return {ok:false};
     if(!['running','paused'].includes(state.status))return {ok:false,message:'本轮已结束，请回首页开始下一轮。'};
     try{const result=await command(state.status==='running'?'pause':'start');update();return result;}catch{return {ok:false,message:'操作暂未成功，请重试。'};}
   });

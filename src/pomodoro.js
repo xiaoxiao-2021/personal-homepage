@@ -6,6 +6,10 @@
   function schedule(){window.taskFocusView?.timerChanged(value);clearTimeout(timer);timer=null;if(displayed()&&value.status==='running'&&!busy)timer=setTimeout(refresh,1000);}
   function apply(next){
     if(!next||!['idle','running','paused','completed'].includes(next.status)||next.revision<value.revision)return;
+    if(next.revision===value.revision){
+      if(Number.isSafeInteger(next.sample)&&Number.isSafeInteger(value.sample)&&next.sample<value.sample)return;
+      if(next.status==='running'&&value.status==='running'&&next.phase===value.phase&&next.remainingMs>value.remainingMs)return;
+    }
     value=next;const seconds=Math.max(0,Math.ceil(value.remainingMs/1000));
     text('#pomoTime',`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`);
     text('#pomoPhase',value.phase==='focus'?'专注':'休息');
@@ -15,7 +19,7 @@
     text('#pomoStart',value.status==='running'?'暂停':value.status==='paused'?'继续':value.status==='completed'?(value.phase==='focus'?'开始休息':'开始专注'):'开始');
     text('#pomoStatus',({idle:'准备开始',running:'计时中',paused:'已暂停',completed:value.phase==='focus'?'本轮专注已完成':'休息结束'})[value.status]);
     $('#pomoStart').disabled=busy||settingsBusy;$('#pomoReset').disabled=busy||settingsBusy;
-    window.taskFocusView?.timerChanged(value);
+    window.taskFocusView?.timerChanged(value);window.personalWork?.timerChanged(value);
     schedule();
   }
   async function refresh(){if(flight||!api.pomodoroState)return;flight=true;try{apply(await api.pomodoroState());}catch{text('#pomoStatus','无法读取计时状态，请重试。');schedule();}finally{flight=false;}}
@@ -53,6 +57,6 @@
   document.addEventListener('visibilitychange',()=>{clearTimeout(timer);if(!document.hidden)void refresh();});
   window.addEventListener('focus',refresh);
   window.addEventListener('pagehide',()=>{clearTimeout(timer);unsubscribe?.();window.removeEventListener('focus',refresh);},{once:true});
-  window.pomodoroUI={snapshot:()=>value,busySaving:()=>settingsBusy,focusTask,isTaskSelected:task=>value.task?.id===task.id&&value.task?.projectId===task.projectId,layoutChanged:()=>{if(displayed())void refresh();else schedule();}};
+  window.pomodoroUI={snapshot:()=>value,command,busySaving:()=>settingsBusy,focusTask,isTaskSelected:task=>value.task?.id===task.id&&value.task?.projectId===task.projectId,layoutChanged:()=>{if(displayed())void refresh();else schedule();}};
   apply(value);void refresh();
 })();

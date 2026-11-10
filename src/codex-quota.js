@@ -21,6 +21,8 @@
     if(!windows.length)summary.textContent=snapshot.status==='missing'?'未找到查询程序':'额度暂不可用';
     for(const w of windows.slice(0,2))summary.append(node('span','quota-chip',`${label(w).replace(/窗口$/,'')} · ${snapshot.stale||w.resetsAt!==null&&w.resetsAt<=Date.now()?'上次剩余':'剩余'} ${percent(w)}`));
     if(windows.length>2)summary.append(node('span','module-muted',`另 ${windows.length-2} 个窗口，展开查看`));
+    const overview=get('quotaOverview'),first=windows[0];overview.hidden=!first||!Number.isFinite(first.remainingPercent);
+    if(!overview.hidden){overview.value=first.remainingPercent;overview.setAttribute('aria-label',label(first)+' 剩余 '+percent(first));}
     const dated=windows.filter(w=>w.resetsAt!==null).sort((a,b)=>a.resetsAt-b.resetsAt),nearest=dated[0];
     get('quotaNearest').textContent=nearest?`${relative(nearest.resetsAt)} · ${dateFormat.format(nearest.resetsAt)}（北京时间）`:windows.length?'自然刷新时间：暂不可用':'';
     const credits=snapshot.resetCredits||{},count=credits.availableCount;

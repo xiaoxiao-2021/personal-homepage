@@ -29,7 +29,7 @@ function defaultTaskView() { return { range:'scene', dates:'all', inboxProjectId
 function defaultTaskViews() { return Object.fromEntries(SCENES.map((scene)=>[scene,defaultTaskView()])); }
 const defaults = {
   version: 1, scene: '总览', theme: 'warm', shortcut: 'Control+Alt+H', didaListIds: {}, taskView:defaultTaskView(), taskViews:defaultTaskViews(), tools:toolDefaults(), music:{tracks:[],volume:.8,lastTrackId:'',lastTime:0},
-  appearance: { wallpaper: '', glass: 'frosted', dim: 8, fit: 'cover', position: 'center', renderQuality: 'smooth' },
+  appearance: { wallpaper: '', builtinWallpaper: 'your-name', glass: 'frosted', dim: 8, fit: 'cover', position: 'center', renderQuality: 'smooth' },
   library: {
     zotero:{name:'Zotero',type:'软件',icon:'⌘',description:'文献管理'}, obsidian:{name:'Obsidian',type:'软件',icon:'◈',description:'知识笔记'}, prism:{name:'Prism',type:'软件',icon:'◫',description:'数据绘图'}, word:{name:'Word',type:'软件',icon:'◉',description:'文档写作'}, browser:{name:'浏览器',type:'网站',icon:'✦',description:'科研检索'}, dida:{name:'滴答清单',type:'软件',icon:'▣',description:'任务管理'}, adcy:{name:'ADCY7 项目',type:'项目',icon:'◈',description:'项目演示入口'}, literature:{name:'本周文献清单',type:'资料',icon:'◫',description:'资料演示入口'}, japanese:{name:'日语学习',type:'学习入口',icon:'✦',description:'学习演示入口'}
   },
@@ -59,6 +59,7 @@ let pendingTransition = null;
 let transitionRunning = false;
 let dida = { state:'unconnected', message:'尚未连接滴答清单。', capabilities:[] };
 let didaDashboard = null;
+let didaNetworkOffline=false,didaRecoveryPending=false,didaRecoveryTimer=null;
 const taskCompletionPending = new Set();
 const taskCompletionErrors = new Map();
 const expandedTaskItems = new Set();
@@ -66,11 +67,13 @@ let detailTaskKey = null;
 let completionConfirmTask = null;
 function applyDidaDashboard(value) {
   if (value && Number(value.revision || 0) < Number(didaDashboard?.revision || 0)) return;
-  didaDashboard = value;
+  didaDashboard = didaNetworkOffline&&value&&value.source==='live'
+    ? {...value,source:'cache',message:'网络已断开，显示上次同步内容。'}:value;
   invalidateSearch();
 }
 function openCompletionPermission() { $('#taskPermissionDialog').showModal(); }
 async function submitTaskCompletion(task) {
+  if(didaNetworkOffline){toast('网络已断开，请联网刷新后再完成任务。');return;}
   const key=JSON.stringify([task.projectId,task.id]);
   if(taskCompletionPending.has(key))return;
   taskCompletionPending.add(key);taskCompletionErrors.delete(key);renderTasks({preserveScroll:true});
@@ -82,16 +85,17 @@ async function submitTaskCompletion(task) {
   } catch {taskCompletionErrors.set(key,'未能确认完成结果，请刷新核对后再试。');}
   finally {taskCompletionPending.delete(key);renderTasks({preserveScroll:true});renderStatus();}
 }
-function requestTaskCompletion(task) {
+function requestTaskCompletion(task,{forceConfirm=false}={}) {
   if(editing||layoutSaveInFlight)return;
   if(!dida.canComplete){openCompletionPermission();return;}
-  if(task.repeatFlag||(task.checkItems||task.subtasks||[]).length){
+  if(forceConfirm||task.repeatFlag||(task.checkItems||task.subtasks||[]).length){
     completionConfirmTask=task;$('#taskCompleteConfirmText').textContent=`完成“${task.title}”？${task.repeatFlag?'这是重复任务，只完成当前实例；下一次安排由滴答生成。':''} ${(task.checkItems||task.subtasks||[]).length?'这将完成整个父任务，而不是单个检查项。':''}本页不提供撤销，请确认后操作。`;
     $('#taskCompleteConfirmDialog').showModal();return;
   }
   void submitTaskCompletion(task);
 }
 async function submitCheckItemCompletion(task,item){
+  if(didaNetworkOffline){toast('网络已断开，请联网刷新后再勾选小项。');return;}
   const parentKey=JSON.stringify([task.projectId,task.id]),key=JSON.stringify([task.projectId,task.id,item.id]);
   if(editing||layoutSaveInFlight||taskCompletionPending.has(parentKey)||Number(item.status)!==0)return;
   if(!dida.canComplete){openCompletionPermission();return;}
@@ -127,7 +131,7 @@ function toast(text) { const node=$('#toast'); node.textContent=text; node.class
 function recordUiTiming(key,startedAt){uiTimings[key]=Math.round((performance.now()-startedAt)*10)/10;}
 function validConfig(config) { return config && typeof config==='object' && config.version===1 && config.library && config.scenes && SCENES.every(scene=>config.scenes[scene]); }
 function normalizeModules(saved, scene) { const fallback=moduleDefaults(scene==='🏠 生活'?'life':'standard'); const source=saved&&typeof saved==='object'?saved:{}; const visible={...fallback.visible,...(source.visible||{})}; const order=Array.isArray(source.order)?source.order.filter((key,index,array)=>Object.prototype.hasOwnProperty.call(fallback.visible,key)&&array.indexOf(key)===index):fallback.order.slice(); for(const key of Object.keys(fallback.visible))if(!order.includes(key))order.push(key); const sizes={...fallback.sizes,...(source.sizes||{})}; for(const key of Object.keys(sizes))if(!['compact','medium','large'].includes(sizes[key]))sizes[key]='medium'; return {visible,order,sizes}; }
-function normalize(config) { if(!validConfig(config))return clone(defaults);const normalized=clone(config);normalized.theme=['warm','peach','night'].includes(normalized.theme)?normalized.theme:defaults.theme;const source=normalized.appearance&&typeof normalized.appearance==='object'?normalized.appearance:{};normalized.appearance={...clone(defaults.appearance),...source};if(!['clear','frosted','transparent'].includes(normalized.appearance.glass))normalized.appearance.glass=defaults.appearance.glass;if(!['cover','contain'].includes(normalized.appearance.fit))normalized.appearance.fit=defaults.appearance.fit;if(!['center','top','bottom'].includes(normalized.appearance.position))normalized.appearance.position=defaults.appearance.position;if(!['smooth','full'].includes(normalized.appearance.renderQuality))normalized.appearance.renderQuality='smooth';normalized.appearance.dim=Math.max(0,Math.min(35,Number(normalized.appearance.dim)||0));normalized.appearance.wallpaper=typeof normalized.appearance.wallpaper==='string'?normalized.appearance.wallpaper:'';normalized.taskView={...clone(defaults.taskView),...(normalized.taskView||{})};if(!['scene','inbox'].includes(normalized.taskView.range))normalized.taskView.range='scene';if(!['all','today','week','undated'].includes(normalized.taskView.dates))normalized.taskView.dates='all';normalized.taskView.inboxProjectId=typeof normalized.taskView.inboxProjectId==='string'?normalized.taskView.inboxProjectId:'';const legacyView=clone(normalized.taskView);const savedTaskViews=normalized.taskViews&&typeof normalized.taskViews==='object'?normalized.taskViews:{};normalized.taskViews={};for(const scene of SCENES){const savedView=savedTaskViews[scene]&&typeof savedTaskViews[scene]==='object'?savedTaskViews[scene]:scene==='总览'?legacyView:{range:'scene',dates:legacyView.dates,inboxProjectId:''};const view={...clone(defaultTaskView()),...savedView};if(!['scene','inbox'].includes(view.range))view.range='scene';if(!['all','today','week','undated'].includes(view.dates))view.dates='all';view.inboxProjectId=typeof view.inboxProjectId==='string'?view.inboxProjectId:'';normalized.taskViews[scene]=view;}normalized.taskView=clone(normalized.taskViews['总览']);for(const scene of SCENES){const fallback=defaultLayout(defaults.scenes[scene].layout.focus,'medium');const saved=normalized.scenes[scene].layout&&typeof normalized.scenes[scene].layout==='object'?normalized.scenes[scene].layout:{};const order=Array.isArray(saved.order)?saved.order.filter((key,index,array)=>['tasks','apps','side'].includes(key)&&array.indexOf(key)===index):fallback.order;normalized.scenes[scene].layout={...fallback,...saved,order:order.length===3?order:fallback.order.slice(),focus:['normal','tasks','apps','side'].includes(saved.focus)?saved.focus:fallback.focus,heights:{...fallback.heights,...(saved.heights||{})},entrySize:['small','medium','large'].includes(saved.entrySize)?saved.entrySize:fallback.entrySize,spacing:['tight','comfortable','spacious'].includes(saved.spacing)?saved.spacing:fallback.spacing,viewportPreset:['relaxed','compact'].includes(saved.viewportPreset)?saved.viewportPreset:'custom',entryStyle:['tiles','compact'].includes(saved.entryStyle)?saved.entryStyle:fallback.entryStyle,showUnsetEntries:typeof saved.showUnsetEntries==='boolean'?saved.showUnsetEntries:fallback.showUnsetEntries};for(const card of ['tasks','apps','side'])if(!['content','compact','medium','tall'].includes(normalized.scenes[scene].layout.heights[card]))normalized.scenes[scene].layout.heights[card]='medium';}return normalized; }
+function normalize(config) { if(!validConfig(config))return clone(defaults);const normalized=clone(config);normalized.theme=['warm','peach','night'].includes(normalized.theme)?normalized.theme:defaults.theme;const source=normalized.appearance&&typeof normalized.appearance==='object'?normalized.appearance:{};normalized.appearance={...clone(defaults.appearance),...source};normalized.appearance.builtinWallpaper=['your-name','morning-lake'].includes(source.builtinWallpaper)?source.builtinWallpaper:'morning-lake';if(!['clear','frosted','transparent'].includes(normalized.appearance.glass))normalized.appearance.glass=defaults.appearance.glass;if(!['cover','contain'].includes(normalized.appearance.fit))normalized.appearance.fit=defaults.appearance.fit;if(!['center','top','bottom'].includes(normalized.appearance.position))normalized.appearance.position=defaults.appearance.position;if(!['smooth','full'].includes(normalized.appearance.renderQuality))normalized.appearance.renderQuality='smooth';normalized.appearance.dim=Math.max(0,Math.min(35,Number(normalized.appearance.dim)||0));normalized.appearance.wallpaper=typeof normalized.appearance.wallpaper==='string'?normalized.appearance.wallpaper:'';normalized.taskView={...clone(defaults.taskView),...(normalized.taskView||{})};if(!['scene','inbox'].includes(normalized.taskView.range))normalized.taskView.range='scene';if(!['all','today','week','undated'].includes(normalized.taskView.dates))normalized.taskView.dates='all';normalized.taskView.inboxProjectId=typeof normalized.taskView.inboxProjectId==='string'?normalized.taskView.inboxProjectId:'';const legacyView=clone(normalized.taskView);const savedTaskViews=normalized.taskViews&&typeof normalized.taskViews==='object'?normalized.taskViews:{};normalized.taskViews={};for(const scene of SCENES){const savedView=savedTaskViews[scene]&&typeof savedTaskViews[scene]==='object'?savedTaskViews[scene]:scene==='总览'?legacyView:{range:'scene',dates:legacyView.dates,inboxProjectId:''};const view={...clone(defaultTaskView()),...savedView};if(!['scene','inbox'].includes(view.range))view.range='scene';if(!['all','today','week','undated'].includes(view.dates))view.dates='all';view.inboxProjectId=typeof view.inboxProjectId==='string'?view.inboxProjectId:'';normalized.taskViews[scene]=view;}normalized.taskView=clone(normalized.taskViews['总览']);for(const scene of SCENES){const fallback=defaultLayout(defaults.scenes[scene].layout.focus,'medium');const saved=normalized.scenes[scene].layout&&typeof normalized.scenes[scene].layout==='object'?normalized.scenes[scene].layout:{};const order=Array.isArray(saved.order)?saved.order.filter((key,index,array)=>['tasks','apps','side'].includes(key)&&array.indexOf(key)===index):fallback.order;normalized.scenes[scene].layout={...fallback,...saved,order:order.length===3?order:fallback.order.slice(),focus:['normal','tasks','apps','side'].includes(saved.focus)?saved.focus:fallback.focus,heights:{...fallback.heights,...(saved.heights||{})},entrySize:['small','medium','large'].includes(saved.entrySize)?saved.entrySize:fallback.entrySize,spacing:['tight','comfortable','spacious'].includes(saved.spacing)?saved.spacing:fallback.spacing,viewportPreset:['relaxed','compact'].includes(saved.viewportPreset)?saved.viewportPreset:'custom',entryStyle:['tiles','compact'].includes(saved.entryStyle)?saved.entryStyle:fallback.entryStyle,showUnsetEntries:typeof saved.showUnsetEntries==='boolean'?saved.showUnsetEntries:fallback.showUnsetEntries};for(const card of ['tasks','apps','side'])if(!['content','compact','medium','tall'].includes(normalized.scenes[scene].layout.heights[card]))normalized.scenes[scene].layout.heights[card]='medium';}return normalized; }
 function current() { return state.scenes[state.scene]; }
 function normalizeWithModules(config) { const normalized=normalize(config); normalized.music={...clone(defaults.music),...(normalized.music||{})}; normalized.music.tracks=Array.isArray(normalized.music.tracks)?normalized.music.tracks.filter(track=>track&&typeof track.id==='string'&&typeof track.target==='string').map(track=>({...track,name:String(track.name||track.target.split(/[\\/]/).pop()),target:String(track.target)})):[]; normalized.music.volume=Math.max(0,Math.min(1,Number(normalized.music.volume)||0)); normalized.music.lastTrackId=typeof normalized.music.lastTrackId==='string'?normalized.music.lastTrackId:''; normalized.music.lastTime=Math.max(0,Number(normalized.music.lastTime)||0); for(const scene of SCENES){const layout=normalized.scenes[scene].layout;const hadModules=Boolean(config?.scenes?.[scene]?.layout?.modules);layout.modules=normalizeModules(layout.modules,scene);if(scene==='🏠 生活'&&!hadModules){layout.modules=normalizeModules(moduleDefaults('life'),scene);layout.modulesMigrated=true;}/* Keep the three primary columns consistent across scenes. Older builds used focus-apps/focus-side to resize the task card. */layout.focus='normal';} return normalized; }
 function normalizeConfigWithTools(config) {
@@ -147,9 +151,13 @@ function entry(id) { return state.library[id]; }
 function entryKindLabel(kind) { return ({application:'本机应用',file:'文件',folder:'文件夹',website:'网站'})[kind] || '演示入口'; }
 function hasEntryTarget(item) { return ['application','file','folder','website'].includes(item?.kind) && typeof item?.target==='string' && Boolean(item.target.trim()); }
 function entryDescription(item) { return hasEntryTarget(item) ? entryKindLabel(item.kind) : '未设置地址 · 演示入口'; }
-function wallpaperCssPath(value){const path=String(value||'').replace(/\\/g,'/').replace(/#/g,'%23').replace(/\?/g,'%3F').replace(/"/g,'%22');return path?`url("file:///${path}")`:'none';}
+const BUILTIN_WALLPAPERS=Object.freeze({'your-name':{name:'你的名字',image:'assets/your-name.webp'},'morning-lake':{name:'晨间湖岸',image:'assets/morning-lake.png'}});
+function selectedBuiltin(appearance=state.appearance){return BUILTIN_WALLPAPERS[appearance?.builtinWallpaper]||BUILTIN_WALLPAPERS['morning-lake'];}
+function wallpaperCssPath(value,builtin=state.appearance?.builtinWallpaper){const path=String(value||'').replace(/\\/g,'/').replace(/#/g,'%23').replace(/\?/g,'%3F').replace(/"/g,'%22');return path?`url("file:///${path}")`:`url("${(BUILTIN_WALLPAPERS[builtin]||BUILTIN_WALLPAPERS['morning-lake']).image}")`;}
+function selectBuiltinWallpaper(id){if(!Object.hasOwn(BUILTIN_WALLPAPERS,id))return;state.appearance={...state.appearance,wallpaper:'',builtinWallpaper:id};renderAppearance();}
 let lastAppearanceKey = '';
 function renderAppearance(){
+  for(const button of $$('[data-theme-swatch]'))button.setAttribute('aria-pressed',String(button.dataset.themeSwatch===state.theme));
   const appearance=state.appearance||defaults.appearance;
   const key=JSON.stringify([state.theme,appearance,desktopMode]);
   if(key!==lastAppearanceKey){
@@ -157,17 +165,20 @@ function renderAppearance(){
     for(const theme of ['peach','night'])document.body.classList.toggle(theme,state.theme===theme);
     for(const glass of ['clear','frosted','transparent'])document.body.classList.toggle('glass-'+glass,appearance.glass===glass);
     document.body.classList.toggle('desktop-home',desktopMode);
+    document.body.classList.toggle('has-custom-wallpaper',Boolean(appearance.wallpaper));
+    document.body.dataset.wallpaper=appearance.wallpaper?'custom':appearance.builtinWallpaper;
     document.body.classList.toggle('effects-smooth',appearance.renderQuality!=='full');
-    document.body.style.setProperty('--wallpaper-image',wallpaperCssPath(appearance.wallpaper));
+    document.body.style.setProperty('--wallpaper-image',wallpaperCssPath(appearance.wallpaper,appearance.builtinWallpaper));
     document.body.style.setProperty('--wallpaper-size',appearance.fit);
-    document.body.style.setProperty('--wallpaper-position',appearance.position);
+    document.body.style.setProperty('--wallpaper-position',!appearance.wallpaper&&appearance.builtinWallpaper==='your-name'&&appearance.position==='center'?'center bottom':appearance.position);
     document.body.style.setProperty('--wallpaper-dim',String(appearance.dim/100));
   }
   $('#theme').value=state.theme;$('#glass').value=appearance.glass;
   $('#renderQuality').value=appearance.renderQuality==='full'?'full':'smooth';
   $('#wallpaperDim').value=String(appearance.dim);$('#wallpaperDimValue').textContent=appearance.dim+'%';
   $('#wallpaperFit').value=appearance.fit;$('#wallpaperPosition').value=appearance.position;
-  $('#wallpaperName').textContent=appearance.wallpaper?appearance.wallpaper.split(/[\\/]/).pop():'使用默认渐变背景';
+  $('#wallpaperName').textContent=appearance.wallpaper?appearance.wallpaper.split(/[\\/]/).pop():'内置背景 · '+selectedBuiltin(appearance).name;
+  for(const button of $$('[data-wallpaper-preset]'))button.setAttribute('aria-pressed',String(!appearance.wallpaper&&button.dataset.wallpaperPreset===appearance.builtinWallpaper));
 }
 function setTargetControls() {
   const mode=$('#entryMode').value;
@@ -216,6 +227,7 @@ function refreshTaskDetail(){
   body.append(make('p','task-detail-content',content||'暂时没有备注，留一点空白也很好。'));
   const items=Array.isArray(task.checkItems)?task.checkItems:(task.subtasks||[]);
   if(items.length){body.append(make('h4','','这件事里的小步骤'));for(const item of items)body.append(make('p','task-detail-item',`${Number(item.status)===(Array.isArray(task.checkItems)?1:2)?'✓':'○'} ${item.title}`));}
+  window.personalWork?.renderResources(task,body);
 }
 function openTaskDetail(task){
   if(editing||layoutSaveInFlight)return;
@@ -227,7 +239,7 @@ function taskView(task,projectName=new Map()) {
   node.dataset.searchTask=key;
   const mark=make('button','task-complete',taskCompletionPending.has(key)?'…':'');mark.type='button';mark.dataset.taskId=task.id;
   mark.setAttribute('role','checkbox');mark.setAttribute('aria-checked','false');mark.setAttribute('aria-label',`完成任务：${task.title}`);
-  const live=['live','partial'].includes(didaDashboard?.source)&&!(didaDashboard?.source==='partial'&&(!Array.isArray(didaDashboard.failedProjectIds)||didaDashboard.failedProjectIds.includes(task.projectId)));
+  const live=!didaNetworkOffline&&['live','partial'].includes(didaDashboard?.source)&&!(didaDashboard?.source==='partial'&&(!Array.isArray(didaDashboard.failedProjectIds)||didaDashboard.failedProjectIds.includes(task.projectId)));
   mark.disabled=editing||layoutSaveInFlight||taskCompletionPending.has(key)||!live||['expired','authorizing'].includes(dida.state);
   mark.title=taskCompletionPending.has(key)?'正在同步完成…':!live?'请联网刷新后再完成任务':!dida.canComplete?'点击了解如何启用完成任务':'同步完成此任务';
   mark.onclick=()=>requestTaskCompletion(task);node.append(mark);
@@ -263,11 +275,12 @@ function taskView(task,projectName=new Map()) {
     const toggle=make('button','task-items-toggle',expanded||forced?'收起小步骤':`展开其余 ${items.filter(item=>!isVisible(item)).length} 项`);toggle.type='button';toggle.setAttribute('aria-expanded',String(expanded||forced));
     toggle.onclick=()=>{if(expanded||forced){expandedTaskItems.delete(key);if(forced)searchTaskLocation={...searchTaskLocation,kind:'task'};}else expandedTaskItems.add(key);renderTasks({preserveScroll:true});const next=[...$('#tasks').querySelectorAll('[data-search-task]')].find(item=>item.dataset.searchTask===key)?.querySelector('.task-items-toggle');next?.focus({preventScroll:true});};node.append(toggle);
   }
+  window.personalWork?.decorateTask(node,task);
   return node;
 }
 function taskGroup(title,tasks,emptyLabel='今天暂无任务',emptyTone=''){
   if(!tasks.length){const row=make('div',`task-group empty-group ${emptyTone}`.trim());row.append(make('strong','',title),make('span','task-state',emptyLabel));return row;}
-  const detail=make('details','task-group');detail.open=!collapsedTaskGroups.has(title);detail.dataset.groupTitle=title;const summary=make('summary');summary.append(document.createTextNode(title),make('span','count',String(tasks.length)));detail.append(summary);tasks.forEach((task)=>detail.append(taskView(task)));return detail;
+  const detail=make('details','task-group');detail.open=!collapsedTaskGroups.has(title);detail.dataset.groupTitle=title;const summary=make('summary');summary.append(make('span','task-day-label',title),make('span','count',String(tasks.length)));detail.append(summary);tasks.forEach((task)=>detail.append(taskView(task)));return detail;
 }
 function taskSourceLabel(source){return ({live:'已同步',partial:'部分同步',cache:'离线缓存',error:'同步失败',expired:'授权过期',none:'未连接',loading:'正在读取',authorizing:'等待授权'})[source]||'状态未知';}
 function formatTaskDay(key){if(!key||key==='invalid')return '日期待确认';const[y,m,d]=key.split('-');return key.startsWith(todayKey().slice(0,4))?`${Number(m)}月${Number(d)}日`:`${y}年${Number(m)}月${Number(d)}日`;}
@@ -316,7 +329,7 @@ function renderTasks({preserveScroll=false}={}) {
   const title=view.range==='inbox'?`指定清单 · ${dateTitle}`:state.scene==='总览'?dateTitle:`${state.scene} · ${dateTitle}`;
   $('#taskCardTitle').textContent=title;
   const sourceKey=didaDashboard?.source||({loading:'loading',authorizing:'authorizing',expired:'expired',error:'error',unconnected:'none'}[dida.state]||'none');
-  const label=taskSourceLabel(dida.state==='expired'&&sourceKey==='cache'?'expired':sourceKey),selectedInbox=projectName.get(view.inboxProjectId);const mappedGroup=DIDA_GROUPS.find((group)=>group.scene===state.scene);const mappedName=state.scene!=='总览'&&mappedGroup?projectName.get(state.didaListIds?.[mappedGroup.key]):'';const sourceText=view.range==='inbox'&&selectedInbox?`指定清单：${selectedInbox}`:state.scene==='总览'?'全部已读清单':mappedName||'未关联清单';$('#taskSource').textContent=`${sourceText} · ${refreshInFlight?`${label} · 正在刷新`:label}`;
+  const label=taskSourceLabel(dida.state==='expired'&&sourceKey==='cache'?'expired':sourceKey),selectedInbox=projectName.get(view.inboxProjectId);const mappedGroup=DIDA_GROUPS.find((group)=>group.scene===state.scene);const mappedName=state.scene!=='总览'&&mappedGroup?projectName.get(state.didaListIds?.[mappedGroup.key]):'';const sourceText=view.range==='inbox'&&selectedInbox?`指定清单：${selectedInbox}`:state.scene==='总览'?'全部已读清单':mappedName||'未关联清单';$('#taskSource').textContent=`${sourceText} · ${refreshInFlight?`${label} · 正在刷新`:label}${didaNetworkOffline?' · 网络已断开':''}`;
   if(!didaDashboard){host.append(make('div','task-message',refreshInFlight?'正在读取滴答清单…':dida.message||'尚未连接滴答清单。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   if(['none','error','expired'].includes(sourceKey)){host.append(make('div',`task-message ${sourceKey==='none'?'':'task-message-warning'}`,didaDashboard.message||dida.message||'滴答清单暂不可用。'));if(preserveScroll)host.scrollTop=previousScroll;return;}
   if(dida.state==='expired'&&sourceKey==='cache')host.append(make('div','task-banner task-message-warning','授权已过期 · 当前显示的是上次成功同步的离线缓存。'));
@@ -357,7 +370,7 @@ function renderTasks({preserveScroll=false}={}) {
   const today=todayKey();
   for(const [key,items] of grouped){
     const heading=key==='invalid'?'日期待确认':key==='no-date'?'未安排':HomeTaskView.dayLabel(key,today);
-    const detail=make('details','task-group');detail.open=!collapsedTaskGroups.has(heading);detail.dataset.groupTitle=heading;const summary=make('summary');summary.append(document.createTextNode(heading),make('span','count',String(items.length)));detail.append(summary);items.forEach(task=>detail.append(taskView(task,projectName)));host.append(detail);
+    const detail=make('details','task-group');detail.open=!collapsedTaskGroups.has(heading);detail.dataset.groupTitle=heading;const summary=make('summary');summary.append(make('span','task-day-label',heading),make('span','count',String(items.length)));detail.append(summary);items.forEach(task=>detail.append(taskView(task,projectName)));host.append(detail);
   }
   if(preserveScroll)host.scrollTop=previousScroll;
 }
@@ -549,8 +562,8 @@ function renderDidaMapping(){
     label.append(select);host.append(label);
   });
 }
-window.homepageGuideContext=()=>({editing:editing||layoutSaveInFlight,settingsDirty:$('#settingsDialog').open&&(settingsSaving||$('#hotkey').value!==(state.shortcut||'')||JSON.stringify(settingsMappingDraft||{})!==JSON.stringify(state.didaListIds||{})),hasEntries:Object.values(state.library||{}).some(hasEntryTarget),dida:dida.state==='authorizing'?'等待授权 · 请完成浏览器中的操作':dida.state==='expired'?'授权已过期 · 请重新连接':didaDashboard?.source==='cache'?'离线缓存 · 连接恢复后可刷新':didaDashboard?.source==='partial'?'部分清单未同步 · 可重试':dida.state==='connected'?'已连接 · 可在设置中关联清单':dida.state==='loading'?'正在检查连接…':dida.state==='error'?'连接暂不可用 · 可重试':'尚未连接 · 可先使用其他功能'});
-window.homepageGuideAction=action=>{if(action==='entry'){buildEntryDialog({area:'apps',id:null});toast('添加入口后，记得保存布局；取消布局可撤销本次修改。');}else if(action==='dida'){$('#settingsBtn').click();$('#didaConnect').scrollIntoView({block:'center'});$('#didaConnect').focus();}};
+window.homepageGuideContext=()=>({editing:editing||layoutSaveInFlight,settingsDirty:$('#settingsDialog').open&&(Boolean(appearanceDraft)||settingsSaving||$('#hotkey').value!==(state.shortcut||'')||JSON.stringify(settingsMappingDraft||{})!==JSON.stringify(state.didaListIds||{})),hasEntries:Object.values(state.library||{}).some(hasEntryTarget),dida:dida.state==='authorizing'?'等待授权 · 请完成浏览器中的操作':dida.state==='expired'?'授权已过期 · 请重新连接':didaDashboard?.source==='cache'?'离线缓存 · 连接恢复后可刷新':didaDashboard?.source==='partial'?'部分清单未同步 · 可重试':dida.state==='connected'?'已连接 · 可在设置中关联清单':dida.state==='loading'?'正在检查连接…':dida.state==='error'?'连接暂不可用 · 可重试':'尚未连接 · 可先使用其他功能'});
+window.homepageGuideAction=action=>{if(action==='entry'){buildEntryDialog({area:'apps',id:null});toast('添加入口后，记得保存布局；取消布局可撤销本次修改。');}else if(action==='dida'){$('#settingsBtn').click();selectSettingsPage('accounts');$('#didaConnect').scrollIntoView({block:'center'});$('#didaConnect').focus();}};
 function render(){ invalidateSearch();renderAppearance();$('#hotkey').value=state.shortcut||''; renderScenes();renderLayout();renderTasks();renderApps();renderSide();renderStatus();renderDidaMapping(); }
 const renderLayoutLegacy=renderLayout;
 renderLayout=function(){
@@ -625,7 +638,7 @@ async function saveEntry(){ const name=$('#entryName').value.trim();const kind=$
 function removeEntry(area,id){ const scene=current(); if(area==='apps')scene.apps=scene.apps.filter(value=>value!==id);else scene.side=scene.side.filter(([,value])=>value!==id);renderApps();renderSide();toast('已从当前场景移除入口；其他场景不受影响。'); }
 async function saveSettings(){
   if(settingsSaving)return;
-  settingsSaving=true;$('#settingsSave').disabled=true;
+  settingsSaving=true;$('.settings-layout').inert=true;$('#settingsSave').disabled=true;
   $('#settingsDialog').setAttribute('aria-busy','true');
   for(const id of ['settingsClose','settingsCancel','hotkey'])$('#'+id).disabled=true;
   $('#settingsSaveStatus').textContent='正在保存，请稍候…';
@@ -636,19 +649,46 @@ async function saveSettings(){
     if(!result.ok){$('#hotkeyHelp').textContent=result.message;$('#settingsSaveStatus').textContent=result.message||'快捷键不可用，请重新选择。';return;}
     const saved=clone(state);saved.shortcut=shortcut;saved.didaListIds=mapping;
     if(await window.homeApi.saveConfig(saved)===false)throw new Error('配置未写入');
-    state.shortcut=shortcut;state.didaListIds=mapping;settingsMappingDraft=null;
+    state.shortcut=shortcut;state.didaListIds=mapping;settingsMappingDraft=null;if(settingsAppearanceEmbedded)appearanceDraft=null;
     $('#settingsDialog').close();render();toast('设置与清单关联已保存。');
   }catch{
     await window.homeApi.setHotkey(previousShortcut).catch(()=>{});
     $('#hotkeyHelp').textContent='设置保存失败，关联选择尚未生效；请保留此窗口并重试。';
     $('#settingsSaveStatus').textContent='未保存，当前选择已保留，请重试。';
     toast('设置未保存，请重试。');
-  }finally{settingsSaving=false;$('#settingsSave').disabled=false;$('#settingsDialog').setAttribute('aria-busy','false');for(const id of ['settingsClose','settingsCancel','hotkey'])$('#'+id).disabled=false;renderDidaMapping();}
+  }finally{settingsSaving=false;$('.settings-layout').inert=false;$('#settingsSave').disabled=false;$('#settingsDialog').setAttribute('aria-busy','false');for(const id of ['settingsClose','settingsCancel','hotkey'])$('#'+id).disabled=false;renderDidaMapping();}
 }
 function inferDidaMapping(projects){state.didaListIds=state.didaListIds||{};let changed=false;DIDA_GROUPS.forEach((group)=>{if(Object.prototype.hasOwnProperty.call(state.didaListIds,group.key))return;const match=projects.find((project)=>project.name===group.label)||projects.find((project)=>project.name.includes(group.hint));if(match){state.didaListIds[group.key]=match.id;changed=true;}});return changed;}
 function nextDidaRefreshDelay(){if(dida.state==='authorizing')return 5000;if(['unconnected','expired','none'].includes(dida.state))return null;if(didaFailureCount>0)return Math.min(300000,30000*Math.pow(2,Math.min(4,didaFailureCount-1)));return 300000;}
-function scheduleDidaRefresh(){clearTimeout(didaPollTimer);didaPollTimer=null;if(document.hidden||refreshInFlight)return;const delay=nextDidaRefreshDelay();if(delay===null)return;const wait=Math.max(0,delay-(Date.now()-lastDidaAttemptAt));didaPollTimer=setTimeout(()=>{void refreshDidaStatus({silent:true});},wait);}
-async function refreshDidaStatus({silent=false}={}){if(refreshInFlight)return;refreshInFlight=true;lastDidaAttemptAt=Date.now();if(!didaDashboard)dida={state:'loading',message:'正在读取滴答清单…'};const button=$('#didaRefresh');button.disabled=true;button.setAttribute('aria-busy','true');button.setAttribute('aria-label','正在刷新滴答清单任务');button.title='正在刷新滴答清单任务';if(!didaDashboard)renderTasks({preserveScroll:true});renderStatus();try{dida=await window.homeApi.didaStatus();applyDidaDashboard(await window.homeApi.didaDashboard());if(didaDashboard?.projects&&!editing&&!appearanceDraft&&!$('#settingsDialog').open&&inferDidaMapping(didaDashboard.projects))await persist();if(didaDashboard?.source==='live'){didaFailureCount=0;}else if(['partial','cache','error'].includes(didaDashboard?.source))didaFailureCount=Math.min(didaFailureCount+1,5);if(!silent&&didaDashboard?.source==='live')toast('滴答清单已刷新。');if(dida.authorizationError)toast(dida.authorizationError);}catch{dida={state:'error',message:'无法读取滴答清单连接状态。'};didaFailureCount=Math.min(didaFailureCount+1,5);}finally{refreshInFlight=false;button.disabled=false;button.setAttribute('aria-busy','false');button.setAttribute('aria-label','刷新滴答清单任务');button.title='刷新滴答清单任务';renderTasks({preserveScroll:true});renderStatus();if($('#settingsDialog').open)renderDidaMapping();window.dispatchEvent(new Event('homepage-connection-state'));scheduleDidaRefresh();}}
+function requestDidaRecovery(){
+  if(!window.homepageReady||['unconnected','expired','none'].includes(dida.state))return;
+  didaRecoveryPending=true;clearTimeout(didaRecoveryTimer);
+  if(document.hidden||didaNetworkOffline||refreshInFlight)return;
+  didaRecoveryTimer=setTimeout(()=>{
+    didaRecoveryTimer=null;
+    if(document.hidden||didaNetworkOffline||refreshInFlight)return;
+    void refreshDidaStatus({silent:true});
+  },1000);
+}
+function checkDidaRecovery(){
+  if(didaRecoveryPending||didaDashboard?.source==='cache'||Date.now()-lastDidaAttemptAt>=300000)requestDidaRecovery();
+}
+function markDidaOffline(){
+  didaNetworkOffline=true;clearTimeout(didaPollTimer);didaPollTimer=null;clearTimeout(didaRecoveryTimer);didaRecoveryTimer=null;
+  if(didaDashboard&&['live','partial'].includes(didaDashboard.source)){
+    applyDidaDashboard({...didaDashboard,message:'网络已断开，显示上次同步内容。'});
+    renderTasks({preserveScroll:true});renderStatus();window.dispatchEvent(new Event('homepage-connection-state'));
+  }
+}
+function markDidaOnline(){didaNetworkOffline=false;requestDidaRecovery();}
+window.addEventListener('offline',markDidaOffline);window.addEventListener('online',markDidaOnline);
+window.addEventListener('focus',checkDidaRecovery);
+window.addEventListener('pagehide',()=>{
+  clearTimeout(didaRecoveryTimer);clearTimeout(didaPollTimer);clearTimeout(clockTimer);clearTimeout(musicSaveTimer);
+  window.removeEventListener('offline',markDidaOffline);window.removeEventListener('online',markDidaOnline);window.removeEventListener('focus',checkDidaRecovery);
+},{once:true});
+function scheduleDidaRefresh(){clearTimeout(didaPollTimer);didaPollTimer=null;if(document.hidden||didaNetworkOffline||refreshInFlight)return;const delay=nextDidaRefreshDelay();if(delay===null)return;const wait=Math.max(0,delay-(Date.now()-lastDidaAttemptAt));didaPollTimer=setTimeout(()=>{void refreshDidaStatus({silent:true});},wait);}
+async function refreshDidaStatus({silent=false}={}){if(refreshInFlight)return;clearTimeout(didaRecoveryTimer);didaRecoveryTimer=null;didaRecoveryPending=false;refreshInFlight=true;lastDidaAttemptAt=Date.now();if(!didaDashboard)dida={state:'loading',message:'正在读取滴答清单…'};const button=$('#didaRefresh');button.disabled=true;button.setAttribute('aria-busy','true');button.setAttribute('aria-label','正在刷新滴答清单任务');button.title='正在刷新滴答清单任务';if(!didaDashboard)renderTasks({preserveScroll:true});renderStatus();try{dida=await window.homeApi.didaStatus();applyDidaDashboard(await window.homeApi.didaDashboard());if(didaDashboard?.projects&&!editing&&!appearanceDraft&&!$('#settingsDialog').open&&inferDidaMapping(didaDashboard.projects))await persist();if(didaDashboard?.source==='live'){didaFailureCount=0;}else if(['partial','cache','error'].includes(didaDashboard?.source))didaFailureCount=Math.min(didaFailureCount+1,5);if(!silent&&didaDashboard?.source==='live')toast('滴答清单已刷新。');if(dida.authorizationError)toast(dida.authorizationError);}catch{dida={state:'error',message:'无法读取滴答清单连接状态。'};didaFailureCount=Math.min(didaFailureCount+1,5);}finally{refreshInFlight=false;button.disabled=false;button.setAttribute('aria-busy','false');button.setAttribute('aria-label','刷新滴答清单任务');button.title='刷新滴答清单任务';renderTasks({preserveScroll:true});renderStatus();if($('#settingsDialog').open)renderDidaMapping();window.dispatchEvent(new Event('homepage-connection-state'));scheduleDidaRefresh();if(didaRecoveryPending)requestDidaRecovery();}}
 async function load(){
   const loaded=await window.homeApi.loadConfig();
   restoreCalendarSession(await window.homeApi.calendarState?.());
@@ -795,7 +835,7 @@ window.addEventListener('pagehide',()=>{closeSearch();clearTimeout(searchHighlig
 
 $('#editBtn').addEventListener('click',()=>editing?stopEdit(true):startEdit());
 $('#cancelEditBtn').addEventListener('click',()=>stopEdit(false));
-function openAppearance(){appearanceDraft=clone({theme:state.theme,appearance:state.appearance});renderAppearance();$('#themeDialog').showModal();}
+function openAppearance(){if($('#settingsDialog').open){selectSettingsPage('appearance');return;}appearanceDraft=clone({theme:state.theme,appearance:state.appearance});renderAppearance();$('#themeDialog').showModal();}
 async function closeAppearance(save){if(!appearanceDraft){$('#themeDialog').close();return true;}if(save){const snapshot=clone(editing&&draft?draft:state);snapshot.theme=state.theme;snapshot.appearance=clone(state.appearance);try{if(await window.homeApi.saveConfig(snapshot)===false)throw new Error('save failed');}catch{toast('外观保存失败，请重试。');return false;}if(editing&&draft){draft.theme=state.theme;draft.appearance=clone(state.appearance);}toast('外观已保存。');}else{state.theme=appearanceDraft.theme;state.appearance=appearanceDraft.appearance;render();}appearanceDraft=null;$('#themeDialog').close();return true;}
 function hasPendingChanges(){return editing||Boolean(appearanceDraft);}
 async function completeTransition(choice){
@@ -845,10 +885,10 @@ async function refreshAbout(){try{const about=await window.homeApi.about();const
 const startupAccess=make('button','btn','登录启动与版本信息');startupAccess.id='startupSettingsBtn';startupAccess.type='button';startupAccess.onclick=async()=>{$('#startupDialog').showModal();await Promise.all([loadStartupSettings(),refreshAbout()]);};$('#startupSettingsSlot').append(startupAccess);
 $('#startupApply').onclick=async()=>{if(startupApplyInFlight)return;const button=$('#startupApply');startupApplyInFlight=true;button.disabled=true;$('#startupEnabled').disabled=true;$('#startupMode').disabled=true;$('#startupDelay').disabled=true;$('#startupStatus').textContent='正在向 Windows 核实并更新本软件的启动项…';try{const result=await window.homeApi.saveStartupSettings({enabled:$('#startupEnabled').checked,mode:$('#startupMode').value,delayMs:Number($('#startupDelay').value)});startupSystemStatus=result;$('#startupEnabled').checked=result.registered===true;$('#startupEnabled').indeterminate=result.state==='unknown'||result.registered===null;$('#startupMode').value=result.preferences?.mode||'window';$('#startupDelay').value=String(result.preferences?.delayMs||0);$('#startupStatus').textContent=result.error||startupStatusText(result);if(result.ok)toast(result.registered?(result.disabledByWindows?'启动项仍由 Windows 禁用。':'登录启动设置已核实保存。'):'登录启动已关闭。');}catch{await loadStartupSettings();$('#startupStatus').textContent=`本地偏好或 Windows 启动项保存失败；实际状态：${startupStatusText(startupSystemStatus)}`;}finally{startupApplyInFlight=false;button.disabled=false;$('#startupEnabled').disabled=!startupSystemStatus?.supported||startupSystemStatus?.state==='unknown'||startupSystemStatus?.registered===null;$('#startupMode').disabled=false;$('#startupDelay').disabled=false;}};$('#startupEnabled').addEventListener('change',markStartupPreferencesPending);$('#startupMode').addEventListener('change',markStartupPreferencesPending);$('#startupDelay').addEventListener('change',markStartupPreferencesPending);$('#aboutRefresh').onclick=refreshAbout;
 $('#themeBtn').onclick=openAppearance;$('#settingsBtn').onclick=()=>{if(editing){toast('请先保存或取消布局编辑，再打开设置。');return;}settingsMappingDraft=clone(state.didaListIds||{});$('#hotkey').value=state.shortcut||'';renderDidaMapping();$('#settingsDialog').showModal();};$('#hideBtn').onclick=()=>{$('#modeInfoDialog').close();window.homeApi.hide();};
-$('#settingsDialog').addEventListener('close',()=>{if(!$('#settingsDialog').open)settingsMappingDraft=null;});
+$('#settingsDialog').addEventListener('close',()=>{if(!$('#settingsDialog').open){settingsMappingDraft=null;restoreAppearanceHost();}});
 $('#settingsDialog').addEventListener('cancel',event=>{if(settingsSaving)event.preventDefault();});
 for(const id of ['settingsClose','settingsCancel'])$('#'+id).onclick=()=>{if(!settingsSaving)$('#settingsDialog').close();};
-$('#settingsBtn').addEventListener('click',()=>{if($('#settingsDialog').open){$('#settingsSaveStatus').textContent='保存快捷键和清单关联。';$('#hotkeyHelp').textContent='保存时会检测是否被系统或其他程序占用。';$('.settings-body').scrollTop=0;}});
+$('#settingsBtn').addEventListener('click',()=>{if($('#settingsDialog').open){$('#settingsSaveStatus').textContent='外观、快捷键与清单关联保存到本机。';$('#hotkeyHelp').textContent='保存时会检测是否被系统或其他程序占用。';selectSettingsPage('daily');$('.settings-body').scrollTop=0;}});
 // Local SVGs only. Keep an accessible name and native tooltip as the action changes.
 function setToolbarAction(button,label,icon,active=false){
   const paths={sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4L19 5"/>',settings:'<path d="m9 3-.6 2-2 .9-1.9-.4-2 3.5 1.3 1.5v3L2.5 15l2 3.5 1.9-.4 2 .9.6 2h4l.6-2 2-.9 1.9.4 2-3.5-1.3-1.5v-3L19.5 9l-2-3.5-1.9.4-2-.9-.6-2Z"/><circle cx="11" cy="12" r="3"/>',desktop:'<rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/>',window:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h18M7 5.5h.01"/>',edit:'<path d="m16 3 5 5L9 20l-6 1 1-6ZM13 6l5 5"/>',save:'<path d="m5 12 4 4L19 6"/>',busy:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'};
@@ -870,7 +910,7 @@ window.homeApi.onRequestTransition((action)=>requestPageTransition(action));
 window.homeApi.onNotice((message)=>toast(message));
 $('#transitionSave').onclick=()=>completeTransition('save');$('#transitionDiscard').onclick=()=>completeTransition('discard');$('#transitionStay').onclick=()=>completeTransition('stay');
 $('#transitionDialog').addEventListener('cancel',event=>{event.preventDefault();completeTransition('stay');});
-$$('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());['theme','glass','renderQuality','wallpaperDim','wallpaperFit','wallpaperPosition'].forEach(id=>$('#'+id).oninput=previewAppearance);$('#wallpaperChoose').onclick=chooseWallpaper;$('#wallpaperClear').onclick=()=>{state.appearance={...state.appearance,wallpaper:''};renderAppearance();};$('#appearanceCancel').onclick=()=>closeAppearance(false);$('#appearanceSave').onclick=()=>closeAppearance(true);
+$$('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());['theme','glass','renderQuality','wallpaperDim','wallpaperFit','wallpaperPosition'].forEach(id=>$('#'+id).oninput=previewAppearance);$('#wallpaperChoose').onclick=chooseWallpaper;$('#wallpaperClear').onclick=()=>{state.appearance={...state.appearance,wallpaper:''};renderAppearance();};$$('[data-wallpaper-preset]').forEach(button=>button.onclick=()=>selectBuiltinWallpaper(button.dataset.wallpaperPreset));$('#appearanceCancel').onclick=()=>closeAppearance(false);$('#appearanceSave').onclick=()=>closeAppearance(true);
 $('#themeDialog').addEventListener('cancel',event=>{event.preventDefault();closeAppearance(false);});
 $('#entryForm').addEventListener('submit',event=>{event.preventDefault();saveEntry();});$('#existing').onchange=selectExisting;$('#entryMode').onchange=setTargetControls;$('#chooseTarget').onclick=chooseTarget;
 $('#didaConnect').onclick=async()=>{const result=await window.homeApi.connectDida();if(result.started)toast('已打开浏览器，请完成授权。');else toast(result.message||'无法开始授权。');await refreshDidaStatus({silent:true});};
@@ -892,11 +932,58 @@ document.addEventListener('click',event=>{const contextActionButton=event.target
 let appDrag=null;$('#appGrid').addEventListener('dragstart',event=>{const node=event.target.closest('.entry');if(!editing||!node||event.target.closest('button'))return;appDrag=Number(node.dataset.index);});$('#appGrid').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#appGrid').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.entry');if(!editing||appDrag===null||!node)return;const to=Number(node.dataset.index);const ids=current().apps;ids.splice(to,0,ids.splice(appDrag,1)[0]);appDrag=null;renderApps();toast('入口顺序已调整。');});
 let sideDrag=null;$('#sideEntries').addEventListener('dragstart',event=>{const node=event.target.closest('.side-entry');if(!editing||!node||event.target.closest('button'))return;sideDrag=Number(node.dataset.index);});$('#sideEntries').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#sideEntries').addEventListener('drop',event=>{event.preventDefault();const node=event.target.closest('.side-entry');if(!editing||sideDrag===null||!node)return;const to=Number(node.dataset.index);const refs=current().side;refs.splice(to,0,refs.splice(sideDrag,1)[0]);sideDrag=null;renderSide();toast('项目与资料入口顺序已调整。');});
 let cardDrag=null;$('#workspace').addEventListener('dragstart',event=>{const card=event.target.closest('.card');if(!editing||!card||event.target.closest('.entry'))return;cardDrag=card.dataset.card;});$('#workspace').addEventListener('dragover',event=>{if(editing)event.preventDefault();});$('#workspace').addEventListener('drop',event=>{const card=event.target.closest('.card');if(!editing||!cardDrag||!card||cardDrag===card.dataset.card)return;const order=current().layout.order;order.splice(order.indexOf(card.dataset.card),0,order.splice(order.indexOf(cardDrag),1)[0]);cardDrag=null;renderLayout();toast('卡片位置已调整。');});
-$('#backupBtn').onclick=async()=>{const result=await window.homeApi.backupConfig(state);if(result.error){toast(result.error);return;}if(!result.canceled)toast('配置备份已完成。');};$('#restoreBtn').onclick=async()=>{const result=await window.homeApi.restoreConfig();if(result.error){toast(result.error);return;}if(!result.canceled){state=normalizeConfigWithTools(result.config);await persist();$('#settingsDialog').close();render();toast('配置已恢复。');}};$('#resetBtn').onclick=async()=>{if(!window.confirm(`仅恢复“${state.scene}”场景的卡片顺序、高度、模块显隐、入口大小/样式、间距和未设置入口显示偏好？入口本身、共用右侧工具、壁纸、主题、滴答关联/授权及其他场景不会改变。`))return;current().layout=clone(defaults.scenes[state.scene].layout);await persist();$('#settingsDialog').close();render();toast('当前场景布局已恢复默认；共用工具和其他设置未改变。');};$('#settingsSave').onclick=saveSettings;
-let clockTimer=null,lastTaskDayKey=todayKey();function refreshTaskDayIfNeeded(){const currentDay=todayKey();if(currentDay===lastTaskDayKey)return false;lastTaskDayKey=currentDay;renderTasks({preserveScroll:true});return true;}function scheduleClock(){clearTimeout(clockTimer);clockTimer=null;if(document.hidden)return;dateText();renderCalendar();refreshTaskDayIfNeeded();clockTimer=setTimeout(scheduleClock,60000);}document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(clockTimer);clockTimer=null;clearTimeout(didaPollTimer);didaPollTimer=null;}else{scheduleClock();updateMusicProgress();scheduleDidaRefresh();}});window.addEventListener('focus',scheduleClock);window.homeApi.onCalendarCheck?.(scheduleClock);document.addEventListener('click',event=>{const button=event.target.closest?.('[data-add-folder]');if(button){buildEntryDialog({area:button.dataset.addFolder,id:null,initialKind:'folder',initialName:'文件中转站'});}});scheduleClock();load();
+$('#backupBtn').onclick=async()=>{const result=await window.homeApi.backupConfig(state);if(result.error){toast(result.error);return;}if(!result.canceled)toast('配置备份已完成。');};$('#restoreBtn').onclick=async()=>{const result=await window.homeApi.restoreConfig();if(result.error){toast(result.error);return;}if(!result.canceled){state=normalizeConfigWithTools(result.config);await persist();if(settingsAppearanceEmbedded)appearanceDraft=null;$('#settingsDialog').close();render();toast('配置已恢复。');}};$('#resetBtn').onclick=async()=>{if(!window.confirm(`仅恢复“${state.scene}”场景的卡片顺序、高度、模块显隐、入口大小/样式、间距和未设置入口显示偏好？入口本身、共用右侧工具、壁纸、主题、滴答关联/授权及其他场景不会改变。`))return;current().layout=clone(defaults.scenes[state.scene].layout);await persist();$('#settingsDialog').close();render();toast('当前场景布局已恢复默认；共用工具和其他设置未改变。');};$('#settingsSave').onclick=saveSettings;
+let clockTimer=null,lastTaskDayKey=todayKey();function refreshTaskDayIfNeeded(){const currentDay=todayKey();if(currentDay===lastTaskDayKey)return false;lastTaskDayKey=currentDay;renderTasks({preserveScroll:true});return true;}function scheduleClock(){clearTimeout(clockTimer);clockTimer=null;if(document.hidden)return;dateText();renderCalendar();refreshTaskDayIfNeeded();clockTimer=setTimeout(scheduleClock,60000);}document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(clockTimer);clockTimer=null;clearTimeout(didaPollTimer);didaPollTimer=null;}else{scheduleClock();updateMusicProgress();scheduleDidaRefresh();checkDidaRecovery();}});window.addEventListener('focus',scheduleClock);window.homeApi.onCalendarCheck?.(()=>{scheduleClock();checkDidaRecovery();});document.addEventListener('click',event=>{const button=event.target.closest?.('[data-add-folder]');if(button){buildEntryDialog({area:button.dataset.addFolder,id:null,initialKind:'folder',initialName:'文件中转站'});}});scheduleClock();load();
 $('#moduleManagerBtn').onclick=openModuleManager;$('#moduleCancel').onclick=()=>$('#moduleDialog').close();$('#moduleSave').onclick=applyModuleManager;$('#moduleUp').onclick=()=>moveModule(-1);$('#moduleDown').onclick=()=>moveModule(1);$('#toolUp').onclick=()=>moveTool(-1);$('#toolDown').onclick=()=>moveTool(1);$('#toolReset').onclick=resetToolManagerDraft;
 $('#cleanLayoutBtn').onclick=previewCleanLayout;
 document.addEventListener('click',event=>{const nav=event.target.closest?.('[data-calendar-nav]');if(nav){if(nav.dataset.calendarNav==='today')followCalendarToday();else browseCalendarMonth(nav.dataset.calendarNav==='next'?1:-1);return;}const day=event.target.closest?.('[data-calendar-day]');if(day){selectCalendarDay(day.dataset.calendarDay,true);return;}const trackButton=event.target.closest?.('[data-music-index]');if(trackButton){musicIndex=Number(trackButton.dataset.musicIndex);state.music.lastTrackId=musicTrack()?.id||'';void setMusicSource(musicTrack(),true);return;}const remove=event.target.closest?.('[data-music-remove]');if(remove){const index=Number(remove.dataset.musicRemove);const was=musicIndex===index;state.music.tracks.splice(index,1);if(was){$('#musicAudio').pause();musicIndex=Math.min(index,state.music.tracks.length-1);if(musicTrack())void setMusicSource(musicTrack(),false);}else if(musicIndex>index)musicIndex--;void window.homeApi.saveConfig(clone(state));renderMusic();return;}});
 document.addEventListener('keydown',event=>{const day=event.target.closest?.('[data-calendar-day]');if(!day||!['Enter',' '].includes(event.key))return;event.preventDefault();selectCalendarDay(day.dataset.calendarDay,true);});
+for(const id of ['ambientOpen','focusAmbientOpen'])$('#'+id).onclick=async()=>{try{const result=await window.homeApi.showAmbient?.();if(!result?.ok)toast('白噪音小窗暂不可用，请使用新版首页。');}catch{toast('未能打开白噪音，请重试。');}};
 $('#musicAdd').onclick=chooseMusic;$('#musicPlay').onclick=playMusic;$('#musicPrev').onclick=()=>stepMusic(-1);$('#musicNext').onclick=()=>stepMusic(1);$('#musicProgress').oninput=event=>{const audio=$('#musicAudio');if(audio.duration)audio.currentTime=audio.duration*(Number(event.target.value)/100);};$('#musicVolume').oninput=event=>{state.music.volume=Number(event.target.value);$('#musicAudio').volume=state.music.volume;clearTimeout(musicSaveTimer);musicSaveTimer=setTimeout(()=>{if(!editing)void window.homeApi.saveConfig(clone(state));},500);};$('#musicAudio').addEventListener('timeupdate',()=>{const audio=$('#musicAudio'),track=musicTrack();if(track){state.music.lastTrackId=track.id;state.music.lastTime=audio.currentTime;}updateMusicProgress();});$('#musicAudio').addEventListener('ended',()=>{if(musicIndex<state.music.tracks.length-1)stepMusic(1);else{state.music.lastTime=0;renderMusic();}});$('#musicAudio').addEventListener('play',()=>{sendMusicState();renderMusic();});$('#musicAudio').addEventListener('pause',()=>{sendMusicState();renderMusic();});window.homeApi.onMusicCommand?.(command=>{if(command==='play')playMusic();else if(command==='pause'){$('#musicAudio').pause();sendMusicState();}});
 $('#musicCollapse').onclick=()=>{if(!editing)startEdit();state.tools=normalizeTools(state.tools);state.tools.musicCollapsed=!state.tools.musicCollapsed;renderModules();toast('共用音乐折叠设置已加入布局草稿；点击保存布局后生效。');};
+
+// Reuse the existing appearance fields and handlers, with one settings transaction.
+let settingsAppearanceEmbedded=false;
+const appearanceHome=$('#themeDialog .modal');
+function restoreAppearanceHost(){
+  if(!settingsAppearanceEmbedded)return;
+  if(appearanceDraft){state.theme=appearanceDraft.theme;state.appearance=appearanceDraft.appearance;appearanceDraft=null;render();}
+  $('#themeDialog').append(appearanceHome);settingsAppearanceEmbedded=false;
+}
+function selectSettingsPage(key){
+  if(settingsSaving)return;
+  const tabs=$$('[data-settings-tab]');
+  if(!tabs.some(button=>button.dataset.settingsTab===key))return;
+  for(const button of tabs){
+    const active=button.dataset.settingsTab===key;
+    if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+  }
+  for(const section of $$('[data-settings-page]'))section.hidden=section.dataset.settingsPage!==key;
+  if(key==='appearance'&&!settingsAppearanceEmbedded){
+    appearanceDraft=clone({theme:state.theme,appearance:state.appearance});
+    $('#settingsAppearanceContent').append(appearanceHome);settingsAppearanceEmbedded=true;renderAppearance();
+  }
+  $('.settings-body').scrollTop=0;
+}
+for(const button of $$('[data-settings-tab]')){
+  button.onclick=()=>selectSettingsPage(button.dataset.settingsTab);
+  button.onkeydown=event=>{
+    const tabs=$$('[data-settings-tab]'),index=tabs.indexOf(button);
+    let next;
+    if(event.key==='ArrowDown'||event.key==='ArrowRight')next=tabs[(index+1)%tabs.length];
+    if(event.key==='ArrowUp'||event.key==='ArrowLeft')next=tabs[(index+tabs.length-1)%tabs.length];
+    if(event.key==='Home')next=tabs[0];if(event.key==='End')next=tabs.at(-1);
+    if(next){event.preventDefault();next.focus();next.click();}
+  };
+}
+$('#settingsFocusOpen').onclick=()=>$('#pomoSettings').click();
+$('#settingsAmbientOpen').onclick=()=>$('#ambientOpen').click();
+
+for(const button of $$('[data-theme-swatch]'))button.onclick=()=>{
+  $('#theme').value=button.dataset.themeSwatch;previewAppearance();
+};
+for(const id of ['backupBtn','restoreBtn','resetBtn'])$('#'+id).addEventListener('click',event=>{
+  if(settingsAppearanceEmbedded&&appearanceDraft&&JSON.stringify(appearanceDraft)!==JSON.stringify({theme:state.theme,appearance:state.appearance})){
+    event.preventDefault();event.stopImmediatePropagation();$('#settingsSaveStatus').textContent='请先保存设置，或取消本轮外观预览，再使用备份与恢复。';
+  }
+},{capture:true});

@@ -25,6 +25,12 @@ focusNow+=61000;assert.equal(linked.snapshot(true).status,'completed');assert.eq
 linked.command('start');assert.equal(linked.snapshot().phase,'break');assert.equal(linked.snapshot().task.id,'b');
 linked.command('reset');assert.equal(linked.snapshot().task,null);assert.equal(createTimer().snapshot().task,null,'new process does not restore task');
 assert.throws(()=>linked.focusTask({id:'../bad',projectId:'p',title:'bad'}));
+let wrapClock=0,wrapNotices=0;const wrap=createTimer({settings:{focus:1,break:1},now:()=>wrapClock,monotonic:()=>wrapClock,onComplete:()=>wrapNotices++});
+wrap.focusTask(taskA);wrapClock+=60001;assert.equal(wrap.snapshot().status,'completed');assert.equal(wrapNotices,1);
+wrap.command('continue-focus');assert.equal(wrap.snapshot().phase,'focus');assert.equal(wrap.snapshot().task.id,'a');assert.equal(wrap.snapshot().remainingMs,60000);
+wrapClock+=5000;wrap.command('continue-focus');assert.equal(wrap.snapshot().remainingMs,55000,'repeat action cannot restart live round');
+wrapClock+=55001;wrap.snapshot();wrap.command('take-break');assert.equal(wrap.snapshot().phase,'break');assert.equal(wrap.snapshot().task.id,'a');assert.equal(wrapNotices,2);
+wrapClock+=60001;wrap.snapshot();wrap.command('start');assert.equal(wrap.snapshot().phase,'focus');assert.equal(wrap.snapshot().task.id,'a');
 (async()=>{
   const output=path.resolve(__dirname,'../test-results/pomodoro');await fs.mkdir(output,{recursive:true});const destination=path.join(output,'isolated-config.json');
   const seed={version:1,library:{},scenes:{},tools:{order:['time','calendar','music']},music:{volume:.7},pomodoroSettings:{focus:25,break:5}};await fs.writeFile(destination,JSON.stringify(seed));

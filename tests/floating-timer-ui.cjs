@@ -1,13 +1,13 @@
 const {app,BrowserWindow,screen,ipcMain}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const out=path.resolve(__dirname,'../test-results/floating-timer');app.setPath('userData',path.join(out,'profile'));app.disableHardwareAcceleration();
-let elapsed=0,homeCalls=0,controller,other,widget;const checks=[];const check=(v,s)=>{assert(v,s);checks.push(s)};const wait=ms=>new Promise(r=>setTimeout(r,ms));
+let elapsed=0,homeCalls=0,reviewTask=null,controller,other,widget;const checks=[];const check=(v,s)=>{assert(v,s);checks.push(s)};const wait=ms=>new Promise(r=>setTimeout(r,ms));
 const timer=require('../pomodoro.cjs').createTimer({now:()=>Date.now()+elapsed,monotonic:()=>performance.now()+elapsed});
 const run=s=>widget.webContents.executeJavaScript(s,true);
 async function click(id){const p=await run(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`);for(const type of ['mouseMove','mouseDown','mouseUp'])widget.webContents.sendInputEvent({type,...p,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});await wait(100);}
 const watchdog=setTimeout(()=>app.exit(1),60000);
 (async()=>{await app.whenReady();await fs.mkdir(out,{recursive:true});other=new BrowserWindow({width:500,height:350,show:true});await other.loadURL('data:text/html,<h1>Synthetic other window</h1>');
-controller=require('../floating-pomodoro.cjs').createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot:()=>timer.snapshot(),command:a=>({ok:true,state:timer.command(a)}),onHome:()=>{homeCalls++;other.show();other.focus();}});
+controller=require('../floating-pomodoro.cjs').createFloatingTimer({BrowserWindow,screen,ipcMain,snapshot:()=>timer.snapshot(),command:a=>({ok:true,state:timer.command(a)}),onHome:task=>{reviewTask=task;homeCalls++;other.show();other.focus();}});
 timer.focusTask({id:'t',projectId:'p',title:'慢慢整理今天的阅读笔记 — 合成任务'});check((await controller.show()).ok,'floating page successfully loaded');widget=BrowserWindow.getAllWindows().find(w=>w!==other);
 check(widget.isAlwaysOnTop(),'native window has always-on-top enabled');check(!widget.isResizable()&&widget.getSize()[0]===320,'compact fixed width native window');
 check(await run(`typeof require==='undefined'&&typeof homeApi==='undefined'&&typeof floatingTimer.action==='function'`),'sandbox exposes only dedicated timer bridge');
@@ -24,6 +24,14 @@ const actionHandler=ipcMain._invokeHandlers.get('focus-float:action');check(!(aw
 widget.setPosition(-20000,-20000);screen.emit('display-metrics-changed');const b=widget.getBounds(),a=screen.getDisplayMatching(b).workArea;check(b.x>=a.x&&b.y>=a.y,'offscreen window clamped after display change');
 await fs.writeFile(path.join(out,'floating.png'),(await widget.webContents.capturePage()).toPNG());
 elapsed+=30*60000;controller.update();await wait(80);check(await run(`document.querySelector('#time').textContent==='00:00'&&document.querySelector('#toggle').disabled`),'completion stays visible at zero without starting another round');
+await fs.writeFile(path.join(out,'wrapup.png'),(await widget.webContents.capturePage()).toPNG());
+check(await run(`!document.querySelector('#wrapup').hidden&&document.querySelector('#wrapup').getBoundingClientRect().bottom<innerHeight`),'completed choices fit compact window');
+await click('complete');check(reviewTask?.id==='t'&&timer.snapshot().status==='completed','completion only returns exact task for home review');
+await click('again');check(timer.snapshot().phase==='focus'&&timer.snapshot().status==='running'&&timer.snapshot().task.id==='t','continue starts same associated task');
+const prior=timer.snapshot().remainingMs;await run(`floatingTimer.action('continue-focus')`);check(timer.snapshot().remainingMs<=prior,'stale repeated continue cannot reset running round');
+elapsed+=26*60000;controller.update();await wait(80);await click('rest');check(timer.snapshot().phase==='break'&&timer.snapshot().status==='running'&&timer.snapshot().task.id==='t','rest uses shared break timer and retains association');
+await click('close');elapsed+=6*60000;controller.update();await wait(80);check(!widget.isVisible(),'completion never reopens hidden window');await controller.show();
+check(await run(`document.querySelector('#wrapup').hidden`),'break completion does not offer stale task wrapup');
 widget.close();await wait(80);check(widget.isDestroyed(),'native close destroys safely');await controller.show();widget=BrowserWindow.getAllWindows().find(w=>w!==other);check(widget&&!widget.isDestroyed(),'native closed window can be recreated');
 controller.dispose();check(widget.isDestroyed()&&!ipcMain._invokeHandlers.has('focus-float:state'),'dispose removes window and handlers');other.destroy();
 await fs.writeFile(path.join(out,'report.json'),JSON.stringify({passed:checks.length,checks,scope:'Real Electron native windows and mouse input; synthetic task and clock. Topmost flag plus second Electron window tested; no real account, user music, desktop mount, full-screen game or secure desktop.'},null,2));console.log('PASS '+checks.length+' floating window checks');clearTimeout(watchdog);app.exit(0);

@@ -1,6 +1,7 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
+const workTest=new URLSearchParams(window.location.search).has('personalWorkTest');
 const completionTest=new URLSearchParams(window.location.search).has('completionTest');
 const assistantTest=new URLSearchParams(window.location.search).has('assistantTest');
 const pomodoroTest=new URLSearchParams(window.location.search).has('pomodoroTest');
@@ -9,6 +10,10 @@ window.addEventListener('error', event => ipcRenderer.send('test:page-error', ev
 window.addEventListener('unhandledrejection', event => ipcRenderer.send('test:page-error', String(event.reason)));
 contextBridge.exposeInMainWorld('testControl', { failNextSave: () => ipcRenderer.invoke('test:fail-save') });
 contextBridge.exposeInMainWorld('homeApi', {
+  personalWorkRead:workTest?()=>ipcRenderer.invoke('test:work-read'):undefined,
+  personalWorkChange:workTest?value=>ipcRenderer.invoke('test:work-change',value):undefined,
+  personalWorkOpen:workTest?value=>ipcRenderer.invoke('test:work-open',value):undefined,
+  onPersonalWorkChanged:callback=>{const handler=(_e,v)=>callback(v);ipcRenderer.on('test:work-changed',handler);return ()=>ipcRenderer.removeListener('test:work-changed',handler);},
   helpMetadata:()=>ipcRenderer.invoke('test:help-meta'),
   checkUpdates:()=>ipcRenderer.invoke('test:help-check'),
   diagnosticSummary:()=>ipcRenderer.invoke('test:help-diagnostic'),
@@ -21,6 +26,7 @@ contextBridge.exposeInMainWorld('homeApi', {
   pomodoroCommand: action => ipcRenderer.invoke('test:pomo-command',action),
   pomodoroFocusTask:value=>ipcRenderer.invoke('test:pomo-focus-task',value),
   pomodoroSettings: value => ipcRenderer.invoke('test:pomo-settings',value),
+  onPomodoroReview:callback=>{const handler=(_event,value)=>callback(value);ipcRenderer.on('test:pomo-review',handler);return ()=>ipcRenderer.removeListener('test:pomo-review',handler);},
   onPomodoroState: callback => {if(!pomodoroTest)return ()=>{};const handler=(_event,value)=>callback(value);ipcRenderer.on('test:pomo-state',handler);return ()=>ipcRenderer.removeListener('test:pomo-state',handler);},
   assistantRecover: value => ipcRenderer.invoke('test:assistant-recover',value),
   onAssistantDraftStorage: callback => {const handler=(_e,value)=>callback(value);ipcRenderer.on('test:assistant-draft-storage',handler);return ()=>ipcRenderer.removeListener('test:assistant-draft-storage',handler);},
